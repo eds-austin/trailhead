@@ -57,23 +57,62 @@ def test_manual_sector_entry(ctx, window):
     assert "set manually" in tab.model.index(0, COL_INDEX["sector"]).data(Qt.ItemDataRole.ToolTipRole)
 
 
-def test_only_buy_sell_rows_and_stop_out_badge(ctx, window):
+def test_stop_change_rows_toggle_and_stop_out_badge(ctx, window, monkeypatch):
     from trailhead.core.models import StopChange, StopReason
+    from trailhead.portfolio_types.stock_trading import tab as tab_mod
     from trailhead.ui.dialogs.trade_dialog import TradeDialog
 
     p = ctx.repos.portfolios.create(Portfolio(None, "Swing", D(100000)))
     b = ctx.repos.trades.add(Trade(None, p.id, "XNCR", Side.BUY, date(2026, 10, 22), D(100), D("25.63"),
                                    initial_stop=D("20.63")))
     ctx.repos.trades.add(Trade(None, p.id, "XNCR", Side.SELL, date(2026, 10, 26), D(25), D("31.63"), lot_id=b.id))
-    ctx.repos.stops.add(StopChange(None, b.id, date(2026, 11, 20), D("25.63"), StopReason.LADDER_CONFIRMED))
+    ctx.repos.stops.add(StopChange(None, b.id, date(2026, 10, 26), D("25.63"), StopReason.LADDER_CONFIRMED))
+    ctx.repos.stops.add(StopChange(None, b.id, date(2026, 11, 20), D("26.00"), StopReason.MANUAL))
     ctx.events.portfolios_changed.emit()
     window.show_page(f"portfolio:{p.id}")
     tab = window.current_tab()
     m = tab.model
     parent = m.index(0, 0)
-    assert m.rowCount(parent) == 2  # BUY + SELL only; the stop change is not a row
-    tip = m.index(0, COL_INDEX["sector"], parent).data(Qt.ItemDataRole.ToolTipRole)
-    assert "Stop → 25.63 on 2026-11-20 (ladder)" in tip
+
+    def cell(row, key):
+        return m.index(row, COL_INDEX[key], m.index(0, 0)).data(CELL_ROLE)
+
+    # stop changes are rows by default: BUY, SELL, then the same-day ladder raise, then the manual one
+    assert m.rowCount(parent) == 4
+    assert [cell(r, "sector").text for r in range(4)] == ["▲ BUY  #1", "▼ SELL  #1", "▲ STOP  #1", "▲ STOP  #1"]
+    assert cell(2, "symbol").text == "2026-10-26"
+    assert cell(2, "stop").text == "25.63" and cell(2, "stop").tone == "stop"
+    assert cell(2, "strategy").text == "from 20.63 · ladder" and cell(2, "strategy").italic
+    assert cell(3, "strategy").text == "from 25.63 · manual"
+    tip = m.index(2, COL_INDEX["sector"], parent).data(Qt.ItemDataRole.ToolTipRole)
+    assert "20.63 → 25.63 on 2026-10-26 (confirmed from the ladder)" in tip
+    assert "At break-even" in tip  # the stop moved up to the entry price
+    tip3 = m.index(3, COL_INDEX["sector"], parent).data(Qt.ItemDataRole.ToolTipRole)
+    assert "Locks in +0.07R" in tip3  # 26.00 is 0.37 above the 25.63 entry, R = 5.00
+    # the BUY row's tooltip still lists the history
+    assert "Stop → 25.63 on 2026-10-26 (ladder)" in m.index(0, COL_INDEX["sector"], parent).data(
+        Qt.ItemDataRole.ToolTipRole)
+
+    # View › Show stop changes follows the tab, hides the rows, keeps the position open, and is remembered
+    act = window.actions["show_stop_changes"]
+    assert act.isEnabled() and act.isChecked()
+    tab.view.expand(m.index(0, 0))
+    act.setChecked(False)
+    assert m.rowCount(m.index(0, 0)) == 2 and tab.view.isExpanded(m.index(0, 0))
+    assert ctx.repos.settings.get(f"ui.tab.{p.id}")["stop_rows"] is False
+    window.show_page("dashboard")
+    window.show_page(f"portfolio:{p.id}")
+    assert not act.isChecked()
+    act.setChecked(True)
+    assert m.rowCount(m.index(0, 0)) == 4
+
+    # Delete on a stop row undoes that stop change (after confirming)
+    monkeypatch.setattr(tab_mod, "confirm", lambda *a, **k: True)
+    tab.view.setCurrentIndex(m.index(3, 0, m.index(0, 0)))
+    tab.delete_selected()
+    assert [s.stop for s in ctx.repos.stops.list_for_portfolio(p.id)] == [D("25.63")]
+    parent = m.index(0, 0)
+    assert m.rowCount(parent) == 3
     # a sell at or below the stop is ticked as a stop-out automatically
     d = TradeDialog(ctx, p, tab.snapshot, prefill={"side": "SELL", "symbol": "XNCR"}, parent=window)
     d.sell_shares.setText("75")
@@ -85,7 +124,8 @@ def test_only_buy_sell_rows_and_stop_out_badge(ctx, window):
     assert d.submit()
     ctx.data_changed(p.id)
     tab.filter.set_value("all")  # the position is closed now
-    sell2 = m.index(2, COL_INDEX["status"], m.index(0, 0)).data(CELL_ROLE)
+    assert cell(3, "sector").text == "▼ SELL  #2"  # BUY, SELL #1, STOP (2026-10-26), SELL #2
+    sell2 = m.index(3, COL_INDEX["status"], m.index(0, 0)).data(CELL_ROLE)
     assert (sell2.text, sell2.badge) == ("Stop-out", "negative")
     assert ctx.repos.trades.get(d.result_trades[0].id).exit_reason == "STOP"
 

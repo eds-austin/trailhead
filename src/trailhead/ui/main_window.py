@@ -114,6 +114,12 @@ class MainWindow(QMainWindow):
             if k in self.actions:
                 self.actions[k].setEnabled(is_pf)
         self.actions["cash"].setEnabled(has_cash)
+        stops = self.actions.get("show_stop_changes")
+        if stops is not None:  # only portfolio types that list stop changes offer the toggle
+            stops.setEnabled(hasattr(w, "set_show_stop_changes"))
+            stops.blockSignals(True)
+            stops.setChecked(bool(getattr(w, "show_stop_changes", False)))
+            stops.blockSignals(False)
         self.ctx.repos.settings.set("ui.last_page", key)
         if hasattr(w, "on_shown"):
             w.on_shown()
@@ -213,6 +219,11 @@ class MainWindow(QMainWindow):
         sc.setCheckable(True)
         sc.toggled.connect(lambda on: self._tab_call("set_show_closed", on))
         vm.addAction(sc)
+        ss = self._act("show_stop_changes", "Show stop changes", None)
+        ss.setCheckable(True)
+        ss.setChecked(True)
+        ss.toggled.connect(lambda on: self._tab_call("set_show_stop_changes", on))
+        vm.addAction(ss)
         vm.addSeparator()
         vm.addAction(self._act("find", "Search symbol", "Ctrl+F", lambda: self._tab_call("focus_search")))
         vm.addAction(self._act("toggle_sidebar", "Collapse sidebar", "Ctrl+\\",
