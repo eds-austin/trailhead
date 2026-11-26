@@ -190,6 +190,12 @@ Choices made where PLAN.md / DESIGN_SYSTEM.md were silent or ambiguous.
 - **Only BUY / SELL rows under a position (2026-11-21, user request).** Stop changes are no longer child rows; each
   BUY row's tooltip lists its stop history and the context menu offers "Undo stop change". BUY rows show the shares
   bought (not remaining).
+- **Stop changes back as rows, with a toggle (2026-11-26, user request; reverses the entry above).** Each stop change
+  is a child row after the same day's trades: date, "▲ STOP #lot" in the stop colour, the new stop under Stop, and
+  "from <previous> · ladder|manual" in italics under Strategy; its tooltip says what the new stop locks in (break-even,
+  +xR) on the shares still held. View › Show stop changes (on by default) hides them again; remembered per portfolio
+  in `ui.tab.<pid>.stop_rows`. Del on a stop row undoes that stop change (after confirming); the context menu's
+  Record sell / Set stop target its lot. The BUY row's tooltip keeps the full stop history.
 - **Stop-outs are flagged (2026-11-21, user request).** `trades.exit_reason = 'STOP'` (migration 005, backfilled from
   the earlier "Stopped out" note). Set by Record stop-out, or by the SELL dialog's "Stop-out" checkbox, which ticks
   itself when the price is at or below the lot's current stop (until the user changes it). Shown as a red STOP-OUT

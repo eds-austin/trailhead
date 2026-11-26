@@ -138,6 +138,7 @@ class PositionsTreeModel(QAbstractItemModel):
         self.pending_divs: dict[str, list] = {}  # position key → pending dividend proposals
         self.earnings_days = 7
         self.flag_missing_prices = True  # off in manual (offline) mode
+        self._show_stops = True  # stop changes as their own child rows (View › Show stop changes)
 
     # ---------------------------------------------------------------- loading
     def set_snapshot(self, snap: PortfolioSnapshot | None) -> None:
@@ -156,6 +157,16 @@ class PositionsTreeModel(QAbstractItemModel):
     def set_search(self, text: str) -> None:
         self._search = text.strip().upper()
         self._rebuild()
+
+    @property
+    def show_stop_changes(self) -> bool:
+        return self._show_stops
+
+    def set_show_stop_changes(self, show: bool) -> None:
+        """Stop changes as their own child rows (default), or only in the BUY row's tooltip."""
+        if show != self._show_stops:
+            self._show_stops = show
+            self._rebuild()
 
     def total_positions(self) -> int:
         return len(self._snapshot.positions) if self._snapshot else 0
@@ -186,6 +197,11 @@ class PositionsTreeModel(QAbstractItemModel):
             for t in pv.position.trades:
                 items.append(((t.trade_date, 0 if t.side == Side.BUY else 1, t.id or 0),
                               _Node("trade", pv, 0, trade=t, parent=node)))
+            if self._show_stops:  # after the same day's trades: a ladder raise follows its sale
+                for lot in pv.position.lots:
+                    for sc in lot.stops:
+                        items.append(((sc.effective_date, 2, sc.id or 0),
+                                      _Node("stop", pv, 0, stop=sc, parent=node)))
             items.sort(key=lambda x: x[0])
             for j, (_, child) in enumerate(items):
                 child.row = j
@@ -465,9 +481,39 @@ def _lot_view(node: _Node, lot_id: int | None):
     return next((lv for lv in node.pv.lot_views if lv.lot.id == lot_id), None)
 
 
+def _stop_lot(node: _Node):
+    """(lot, the stop before this change) for a stop-change row."""
+    sc = node.stop
+    assert sc is not None
+    lot = next((lot for lot in node.pv.position.lots if lot.id == sc.lot_id), None)
+    if lot is None:
+        return None, None
+    ordered = sorted(lot.stops, key=lambda x: (x.effective_date, x.id or 0))
+    i = next((i for i, x in enumerate(ordered) if x is sc or (x.id is not None and x.id == sc.id)), 0)
+    return lot, ordered[i - 1].stop if i > 0 else lot.initial_stop
+
+
+def stop_cell(node: _Node, key: str) -> Cell:
+    """Cell for a stop-change row: date, STOP #lot, the new stop under Stop, and where it came from."""
+    sc = node.stop
+    assert sc is not None
+    lot, prev = _stop_lot(node)
+    arrow = "▲" if prev is None or sc.stop >= prev else "▼"
+    how = "ladder" if sc.reason == StopReason.LADDER_CONFIRMED else "manual"
+    cells = {
+        "symbol": Cell(fmt.short_date(sc.effective_date), "num", "muted"),
+        "sector": Cell(f"{arrow} STOP  #{lot.no if lot else '?'}", "side", "stop"),
+        "strategy": Cell(f"from {fmt.price(prev)} · {how}" if prev is not None else how, "muted", italic=True),
+        "stop": Cell(fmt.price(sc.stop), "num", "stop"),
+    }
+    return cells.get(key, Cell("", "text"))
+
+
 def child_cell(node: _Node, key: str) -> Cell:
-    """Cell for a BUY / SELL row: each value sits under the column whose heading it matches.
-    Stop changes are not rows; they show in the BUY row's tooltip (and the lot's Stop cell)."""
+    """Cell for a child row: each value sits under the column whose heading it matches.
+    Stop changes are rows too (unless hidden in the View menu); the BUY row's tooltip also lists them."""
+    if node.kind == "stop":
+        return stop_cell(node, key)
     empty = Cell("", "text")
     t = node.trade
     assert t is not None
@@ -530,7 +576,28 @@ def child_tooltip(node: _Node) -> str | None:
     return tip
 
 
+def _stop_tooltip(node: _Node) -> str:
+    sc = node.stop
+    assert sc is not None
+    lot, prev = _stop_lot(node)
+    how = "confirmed from the ladder" if sc.reason == StopReason.LADDER_CONFIRMED else "set by hand"
+    tip = (f"{node.pv.symbol} stop for lot #{lot.no if lot else '?'}: "
+           f"{fmt.price(prev) if prev is not None else '?'} → {fmt.price(sc.stop)} "
+           f"on {fmt.short_date(sc.effective_date)} ({how})")
+    if lot is not None and lot.r:
+        locked = (sc.stop - lot.entry) / lot.r
+        if locked == 0:
+            tip += "\nAt break-even: the shares still held can no longer lose"
+        elif locked > 0:
+            tip += f"\nLocks in {fmt.r_mult(locked)} on the shares still held"
+        else:
+            tip += f"\nStill risks {fmt.r_mult(locked)} on the shares still held"
+    return tip
+
+
 def _child_tooltip(node: _Node) -> str | None:
+    if node.kind == "stop":
+        return _stop_tooltip(node)
     t = node.trade
     if t is None:
         return None

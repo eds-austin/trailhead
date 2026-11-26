@@ -283,6 +283,7 @@ class PortfolioTab(QWidget):
             self.group_by.set_value(ui["group"], emit=False)
         if ui.get("view") == "performance":
             self.view_mode.set_value("performance", emit=False)
+        self.model.set_show_stop_changes(ui.get("stop_rows", True))
         self._sync_mode_widgets()
 
     def _save_ui(self) -> None:
@@ -290,6 +291,7 @@ class PortfolioTab(QWidget):
             "period": self.period.currentData(), "unit": self.unit.value(), "filter": self.filter.value(),
             "splitter": base64.b64encode(bytes(self.splitter.saveState().data())).decode(),
             "view": self.view_mode.value(), "group": self.group_by.value(),
+            "stop_rows": self.model.show_stop_changes,
         })
 
     # ------------------------------------------------------------------ performance view
@@ -441,6 +443,19 @@ class PortfolioTab(QWidget):
 
     def set_show_closed(self, show: bool) -> None:
         self.filter.set_value("all" if show else "open")
+
+    @property
+    def show_stop_changes(self) -> bool:
+        return self.model.show_stop_changes
+
+    def set_show_stop_changes(self, show: bool) -> None:
+        """View › Show stop changes: stop raises as their own lines under each position (remembered per portfolio)."""
+        if show == self.model.show_stop_changes:
+            return
+        expanded = self.view.expanded_keys() if self.model.rowCount() else set()
+        self.model.set_show_stop_changes(show)
+        self.view.restore_expanded(expanded)
+        self._save_ui()
 
     # ------------------------------------------------------------------ selection helpers
     def _current_position_key(self) -> str | None:
@@ -608,6 +623,8 @@ class PortfolioTab(QWidget):
             return
         if node.kind == "trade":
             self.delete_trade(node.trade)
+        elif node.kind == "stop":
+            self.delete_stop(node.stop)
 
     def delete_trade(self, t: Trade) -> None:
         if t.side == Side.BUY and self.snapshot is not None:
@@ -628,10 +645,12 @@ class PortfolioTab(QWidget):
         self.ctx.toast("Trade deleted", desc, "info")
 
     def _lot_stops(self, node) -> list:
-        """Stop changes of the lot behind a BUY row (or the only open lot of a position row), oldest first."""
+        """Stop changes of the lot behind a BUY or stop row (or the only open lot of a position row), oldest first."""
         lots = node.pv.position.lots
         if node.kind == "trade" and node.trade.side == Side.BUY:
             lots = [lot for lot in lots if lot.id == node.trade.id]
+        elif node.kind == "stop":
+            lots = [lot for lot in lots if lot.id == node.stop.lot_id]
         elif node.kind == "position":
             lots = [lot for lot in lots if not lot.is_closed]
             if len(lots) != 1:
@@ -718,6 +737,8 @@ class PortfolioTab(QWidget):
             a = pv.top_action
             if node.kind == "trade" and node.trade.side == Side.BUY:
                 lot_id = node.trade.id
+            elif node.kind == "stop":
+                lot_id = node.stop.lot_id
             elif a is not None and a.lot_id is not None and a.shares:
                 lot_id, shares = a.lot_id, a.shares
             m.addAction("Record sell…", lambda: self.record_sell(lot_id, shares, pv.symbol))
