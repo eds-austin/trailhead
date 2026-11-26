@@ -1,0 +1,41 @@
+# Flatpak manifest — build from the repo root:
+#   flatpak install --user flathub org.kde.Sdk//6.11 io.qt.PySide.BaseApp//6.11 org.flatpak.Builder
+#   flatpak run org.flatpak.Builder --user --install --force-clean build-dir packaging/flatpak/io.github.trailhead.Trailhead.yml
+#   flatpak run io.github.trailhead.Trailhead
+# Regenerate python3-deps.json after dependency changes:  uv run python packaging/flatpak/gen_python_deps.py
+app-id: io.github.trailhead.Trailhead
+runtime: org.kde.Platform
+runtime-version: "6.11"
+sdk: org.kde.Sdk
+base: io.qt.PySide.BaseApp
+base-version: "6.11"
+command: trailhead
+cleanup-commands:
+  - /app/cleanup-BaseApp.sh
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --share=network                 # market data (Yahoo Finance)
+  - --filesystem=home               # backup folder (e.g. a NAS mount under ~) and import/export dialogs
+  - --talk-name=org.freedesktop.Notifications   # desktop alerts
+  - --env=QT_QPA_PLATFORMTHEME=
+modules:
+  - python3-deps.json
+  - name: trailhead
+    buildsystem: simple
+    build-commands:
+      - pip3 install --no-deps --no-build-isolation --no-index --prefix=${FLATPAK_DEST} .
+      - install -Dm644 packaging/linux/io.github.trailhead.Trailhead.desktop ${FLATPAK_DEST}/share/applications/io.github.trailhead.Trailhead.desktop
+      - install -Dm644 packaging/linux/io.github.trailhead.Trailhead.metainfo.xml ${FLATPAK_DEST}/share/metainfo/io.github.trailhead.Trailhead.metainfo.xml
+      - install -Dm644 packaging/icons/io.github.trailhead.Trailhead.svg ${FLATPAK_DEST}/share/icons/hicolor/scalable/apps/io.github.trailhead.Trailhead.svg
+      - for s in 64 128 256 512; do install -Dm644 packaging/icons/$s.png ${FLATPAK_DEST}/share/icons/hicolor/${s}x${s}/apps/io.github.trailhead.Trailhead.png; done
+    sources:
+      - type: dir
+        path: ../..
+        skip:
+          - .venv
+          - .git
+          - build-dir
+          - .flatpak-builder

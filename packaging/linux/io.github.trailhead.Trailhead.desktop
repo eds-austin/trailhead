@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Trailhead
+GenericName=Trading Portfolio Tracker
+Comment=Track an R-multiple stock-trading portfolio
+Exec=trailhead
+Icon=io.github.trailhead.Trailhead
+Terminal=false
+Categories=Office;Finance;
+Keywords=stocks;trading;portfolio;R-multiple;finance;
+StartupWMClass=trailhead

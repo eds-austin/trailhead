@@ -1,0 +1,55 @@
+[project]
+name = "trailhead"
+version = "0.1.0"
+description = "Desktop tracker for an R-multiple stock-trading portfolio"
+readme = "README.md"
+license = "GPL-3.0-or-later AND OFL-1.1 AND ISC"
+license-files = [
+    "LICENSE",                                                # the app: GPL-3.0-or-later
+    "src/trailhead/ui/theme/fonts/*-OFL.txt",                 # bundled Inter, JetBrains Mono
+    "src/trailhead/ui/theme/icons/LICENSE-lucide.txt",        # bundled Lucide icons
+]
+requires-python = ">=3.12"
+dependencies = [
+    "PySide6>=6.8",
+    "pyqtgraph>=0.13.7",
+    "pandas>=2.2",
+    "numpy>=2.0",
+    "yfinance>=0.2.50",
+    "platformdirs>=4.2",
+    "desktop-notifier>=6.0",
+]
+
+[project.optional-dependencies]
+xlsx = ["openpyxl>=3.1"]
+
+[project.scripts]
+trailhead = "trailhead.__main__:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "pytest-qt>=4.4", "ruff>=0.6"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/trailhead"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "N"]
+ignore = ["RUF001", "RUF002", "RUF003", "RUF012", "SIM300"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+qt_api = "pyside6"
+filterwarnings = ["ignore::DeprecationWarning:pyqtgraph.*"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/trailhead/ui/theme/qss.py" = ["E501"]
+"tests/**" = ["N817", "N802"]

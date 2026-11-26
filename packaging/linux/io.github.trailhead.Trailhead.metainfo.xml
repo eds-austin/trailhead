@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.trailhead.Trailhead</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Trailhead</name>
+  <summary>Track an R-multiple stock-trading portfolio</summary>
+  <description>
+    <p>
+      A desktop tracker for swing traders who manage positions in R multiples. Every buy is its own lot with an
+      initial stop and a 25% sell ladder. The app shows the current stop and the next target for each position,
+      suggests stop raises and tranche sells at each milestone, and raises alerts.
+    </p>
+    <ul>
+      <li>Spreadsheet-style positions table with expandable trades</li>
+      <li>Performance statistics: win rate, profit factor, expectancy and R / StDev</li>
+      <li>Prices, sectors, earnings dates and dividends from the internet, with manual overrides</li>
+      <li>Candlestick charts with stop, target and R-ladder lines</li>
+      <li>Automatic local backups, restore, and JSON export and import</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">io.github.trailhead.Trailhead.desktop</launchable>
+  <provides>
+    <binary>trailhead</binary>
+  </provides>
+  <categories>
+    <category>Office</category>
+    <category>Finance</category>
+  </categories>
+  <content_rating type="oars-1.1"/>
+  <requires>
+    <display_length compare="ge">960</display_length>
+  </requires>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  <releases>
+    <release version="0.1.0" date="2026-11-20">
+      <description>
+        <p>First release.</p>
+      </description>
+    </release>
+  </releases>
+</component>
