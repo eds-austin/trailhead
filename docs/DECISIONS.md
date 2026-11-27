@@ -390,3 +390,7 @@ Choices made where PLAN.md / DESIGN_SYSTEM.md were silent or ambiguous.
   new trade now also fetches its **current price** from the provider (`MarketService.fetch_quote`, stored like a
   refresh, so a held symbol's quote is updated too; a pinned manual price is kept) and fills Price / Sell price
   unless the user typed one. Once per symbol per dialog; offline or in manual mode the stored price stays.
+  Follow-up (same day, user request): once the size is set (Use suggested, or Enter in Shares on a buy), focus
+  moves to **Price** with the fetched quote selected, since the actual fill price is typed after the order
+  executes. Enter in Shares therefore no longer saves a buy. The link reserves room for its focus ring (it was
+  clipped to "Jse suggested" when focused).

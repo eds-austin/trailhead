@@ -80,7 +80,10 @@ class _LinkButton(QPushButton):
         self.setProperty("variant", "ghost")
         self.setProperty("scale", "small")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setStyleSheet(f"color: {theme.palette().accent};")
+        accent = theme.palette().accent
+        # A transparent 2px border reserves room for the focus ring, which would otherwise squeeze the text.
+        self.setStyleSheet(f"QPushButton {{ color: {accent}; border: 2px solid transparent; }}"
+                           f"QPushButton:focus {{ border-color: {accent}; }}")
         self.setAutoDefault(False)
 
 
@@ -401,6 +404,20 @@ class TradeDialog(UnknownSymbolMixin, AppDialog):
         n = self._suggested()
         if n:
             self.shares.set_value(n, 0)
+            self._to_price()
+
+    def _to_price(self) -> None:
+        """After the size is set, the price is what's left: the fill price, typed once the order has executed
+        (the fetched quote is selected so typing replaces it)."""
+        self.price.setFocus(Qt.FocusReason.OtherFocusReason)
+        self.price.selectAll()
+
+    def keyPressEvent(self, e) -> None:  # noqa: N802
+        if (e.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and self.focusWidget() is self.shares
+                and self.is_buy() and self.shares.value()):
+            self._to_price()  # Enter in Shares moves on to Price rather than saving
+            return
+        super().keyPressEvent(e)
 
     def _apply_tranche(self) -> None:
         n = self._tranche()

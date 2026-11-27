@@ -174,8 +174,17 @@ def test_new_buy_fetches_the_current_price(ctx, window, monkeypatch):
     dlg._update_live()
     assert dlg.use_suggested.text() == "Use suggested: 340"
     assert dlg.shares.value() is None  # not filled until the link is clicked
+    dlg.show()
     dlg._apply_suggested()
     assert dlg.shares.value() == 340
+    assert dlg.focusWidget() is dlg.price and dlg.price.selectedText() == "43.18"  # ready for the fill price
+
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    dlg.shares.setFocus()
+    QTest.keyClick(dlg.shares, Qt.Key.Key_Return)  # Enter in Shares moves on to Price instead of saving
+    assert dlg.isVisible() and dlg.focusWidget() is dlg.price
 
     typed = TradeDialog(ctx, p, tab.snapshot, parent=window)
     typed.price.setText("41.00")
