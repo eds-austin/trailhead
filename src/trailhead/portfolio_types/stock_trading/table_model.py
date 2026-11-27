@@ -79,8 +79,29 @@ class _Node:
     row: int
     trade: Trade | None = None
     stop: StopChange | None = None
+    seq: int = 0  # 1-based count of this kind of event (BUY, SELL or STOP) within the position, by date
     children: list[_Node] = field(default_factory=list)
     parent: _Node | None = None
+
+
+def _event_key(node: _Node) -> tuple[str, int]:
+    if node.kind == "stop":
+        return ("STOP", id(node.stop))
+    return (node.trade.side.value, id(node.trade))  # type: ignore[union-attr]
+
+
+def _number_events(pv: PositionView) -> dict[tuple[str, int], int]:
+    """BUY #n, SELL #n and STOP #n count each kind of event across the whole position in date order (the lot is
+    shown separately), so the 3rd sale is SELL #3 and the 2nd stop raise STOP #2 whichever lot they belong to."""
+    out: dict[tuple[str, int], int] = {}
+    trades = sorted(pv.position.trades, key=lambda t: (t.trade_date, t.id or 0))
+    for side in (Side.BUY, Side.SELL):
+        for i, t in enumerate((t for t in trades if t.side == side), 1):
+            out[(side.value, id(t))] = i
+    stops = sorted((sc for lot in pv.position.lots for sc in lot.stops), key=lambda x: (x.effective_date, x.id or 0))
+    for i, sc in enumerate(stops, 1):
+        out[("STOP", id(sc))] = i
+    return out
 
 
 def action_text(a: ActionDue | None, ladder_k: str | None = None) -> str:
@@ -206,6 +227,9 @@ class PositionsTreeModel(QAbstractItemModel):
             for j, (_, child) in enumerate(items):
                 child.row = j
                 node.children.append(child)
+            seq = _number_events(pv)
+            for child in node.children:
+                child.seq = seq.get(_event_key(child), 0)
             self._nodes.append(node)
         self.endResetModel()
 
@@ -500,11 +524,15 @@ def stop_cell(node: _Node, key: str) -> Cell:
     lot, prev = _stop_lot(node)
     arrow = "▲" if prev is None or sc.stop >= prev else "▼"
     how = "ladder" if sc.reason == StopReason.LADDER_CONFIRMED else "manual"
+    latest = lot is not None and max(lot.stops, key=lambda x: (x.effective_date, x.id or 0)) is sc
+    in_effect = latest and not lot.is_closed  # type: ignore[union-attr]
     cells = {
         "symbol": Cell(fmt.short_date(sc.effective_date), "num", "muted"),
-        "sector": Cell(f"{arrow} STOP  #{lot.no if lot else '?'}", "side", "stop"),
+        "sector": Cell(f"{arrow} STOP  #{node.seq or '?'}", "side", "stop"),
+        "status": Cell(f"lot #{lot.no if lot else '?'}", "muted"),
         "strategy": Cell(f"from {fmt.price(prev)} · {how}" if prev is not None else how, "muted", italic=True),
-        "stop": Cell(fmt.price(sc.stop), "num", "stop"),
+        # reading down the Stop column gives the stop's history; only the one in effect is in the stop colour
+        "stop": Cell(fmt.price(sc.stop), "num", "stop" if in_effect else "muted"),
     }
     return cells.get(key, Cell("", "text"))
 
@@ -526,12 +554,14 @@ def child_cell(node: _Node, key: str) -> Cell:
         r_now = None if lv is None else lv.current_r
         cells = {
             "symbol": Cell(fmt.short_date(t.trade_date), "num", "muted"),
-            "sector": Cell(f"▲ BUY  #{lot.no if lot else '?'}", "side", "positive"),
+            "sector": Cell(f"▲ BUY  #{node.seq or '?'}", "side", "positive"),
+            "status": Cell(f"lot #{lot.no if lot else '?'}", "muted"),
             "strategy": Cell(" · ".join(x for x in (t.strategy, t.timeframe, lot.exit_plan if lot else None) if x)
                              or fmt.DASH, "muted"),
             "shares": Cell(fmt.shares(t.shares), "num"),  # shares bought in this transaction
             "avg_entry": Cell(fmt.price(t.price), "num"),
-            "stop": Cell(fmt.price(lot.current_stop if lot else t.initial_stop), "num", "faint" if closed else "stop"),
+            # the initial stop: later stops are on the STOP rows below, the current one on the position row
+            "stop": Cell(fmt.price(lot.initial_stop if lot else t.initial_stop), "num", "faint" if closed else "muted"),
             "r_now": Cell(fmt.r_mult(r_now) if r_now is not None else "", "signed", _signed_tone(r_now)),
             "unreal": Cell(fmt.signed_money(unreal) if unreal is not None else "", "signed", _signed_tone(unreal)),
             "open_risk": Cell(fmt.money(lv.open_risk) if lv is not None and not closed else "", "num"),
@@ -546,7 +576,7 @@ def child_cell(node: _Node, key: str) -> Cell:
     rr = pl / (lot.shares * lot.r) if lot is not None and pl is not None else None
     cells = {
         "symbol": Cell(fmt.short_date(t.trade_date), "num", "muted"),
-        "sector": Cell(f"▼ SELL  #{(lot.sell_number(t.id) if lot else None) or '?'}", "side", "negative"),
+        "sector": Cell(f"▼ SELL  #{node.seq or '?'}", "side", "negative"),
         "status": (Cell("Stop-out", "status", badge="negative") if t.is_stop_out
                    else Cell(f"lot #{lot.no if lot else '?'}", "muted")),
         "shares": Cell(fmt.shares(t.shares), "num"),
@@ -581,7 +611,7 @@ def _stop_tooltip(node: _Node) -> str:
     assert sc is not None
     lot, prev = _stop_lot(node)
     how = "confirmed from the ladder" if sc.reason == StopReason.LADDER_CONFIRMED else "set by hand"
-    tip = (f"{node.pv.symbol} stop for lot #{lot.no if lot else '?'}: "
+    tip = (f"{node.pv.symbol} STOP #{node.seq or '?'} for lot #{lot.no if lot else '?'}: "
            f"{fmt.price(prev) if prev is not None else '?'} → {fmt.price(sc.stop)} "
            f"on {fmt.short_date(sc.effective_date)} ({how})")
     if lot is not None and lot.r:
@@ -605,13 +635,12 @@ def _child_tooltip(node: _Node) -> str | None:
     lot_no = lv.lot.no if lv else "?"
     if t.side == Side.BUY and t.initial_stop is not None:
         r = t.price - t.initial_stop
-        return (f"{t.symbol} BUY #{lot_no}: {fmt.shares(t.shares)} @ {fmt.price(t.price)}\n"
+        return (f"{t.symbol} BUY #{node.seq or '?'} (lot #{lot_no}): {fmt.shares(t.shares)} @ {fmt.price(t.price)}\n"
                 f"Initial stop {fmt.price(t.initial_stop)}"
                 f" · R/share {fmt.price(r)} · initial risk {fmt.money(r * t.shares)}"
                 + _stop_history(lv) + (f"\n{t.notes}" if t.notes else ""))
     if t.side == Side.SELL:
-        sell_no = (lv.lot.sell_number(t.id) if lv else None) or "?"
-        return (f"{t.symbol} SELL #{sell_no}{' (stop-out)' if t.is_stop_out else ''}: "
+        return (f"{t.symbol} SELL #{node.seq or '?'}{' (stop-out)' if t.is_stop_out else ''}: "
                 f"{fmt.shares(t.shares)} @ {fmt.price(t.price)} from lot #{lot_no}"
                 + (f"\n{t.notes}" if t.notes else ""))
     return None

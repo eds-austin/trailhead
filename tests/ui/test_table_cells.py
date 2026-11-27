@@ -79,9 +79,13 @@ def test_stop_change_rows_toggle_and_stop_out_badge(ctx, window, monkeypatch):
 
     # stop changes are rows by default: BUY, SELL, then the same-day ladder raise, then the manual one
     assert m.rowCount(parent) == 4
-    assert [cell(r, "sector").text for r in range(4)] == ["▲ BUY  #1", "▼ SELL  #1", "▲ STOP  #1", "▲ STOP  #1"]
+    # the number counts that kind of event in the position; the lot is in the Status column on every row
+    assert [cell(r, "sector").text for r in range(4)] == ["▲ BUY  #1", "▼ SELL  #1", "▲ STOP  #1", "▲ STOP  #2"]
+    assert [cell(r, "status").text for r in range(4)] == ["lot #1"] * 4
     assert cell(2, "symbol").text == "2026-10-26"
-    assert cell(2, "stop").text == "25.63" and cell(2, "stop").tone == "stop"
+    # reading down the Stop column gives the history: initial stop on the BUY row, then each raise
+    assert [cell(r, "stop").text for r in range(4)] == ["20.63", "", "25.63", "26.00"]
+    assert cell(2, "stop").tone == "muted" and cell(3, "stop").tone == "stop"  # only the stop in effect stands out
     assert cell(2, "strategy").text == "from 20.63 · ladder" and cell(2, "strategy").italic
     assert cell(3, "strategy").text == "from 25.63 · manual"
     tip = m.index(2, COL_INDEX["sector"], parent).data(Qt.ItemDataRole.ToolTipRole)
@@ -149,3 +153,23 @@ def test_closed_rows_sort_with_blanks_on_columns_they_show_as_dash(ctx, window):
         for order in (Qt.SortOrder.DescendingOrder, Qt.SortOrder.AscendingOrder):
             m.sort(COL_INDEX[key], order)
             assert m.position_keys()[-1].startswith("SHUT"), (key, order, m.position_keys())
+
+
+def test_event_numbers_count_across_lots(ctx, window):
+    from trailhead.core.models import StopChange, StopReason
+
+    p = ctx.repos.portfolios.create(Portfolio(None, "Swing", D(100000)))
+    b1 = ctx.repos.trades.add(Trade(None, p.id, "PSX", Side.BUY, date(2026, 2, 6), D(16), D(150), initial_stop=D(140)))
+    b2 = ctx.repos.trades.add(Trade(None, p.id, "PSX", Side.BUY, date(2026, 3, 2), D(8), D(160), initial_stop=D(150)))
+    ctx.repos.trades.add(Trade(None, p.id, "PSX", Side.SELL, date(2026, 4, 1), D(2), D(170), lot_id=b2.id))
+    ctx.repos.stops.add(StopChange(None, b1.id, date(2026, 4, 2), D(150), StopReason.MANUAL))
+    ctx.repos.trades.add(Trade(None, p.id, "PSX", Side.SELL, date(2026, 5, 1), D(4), D(175), lot_id=b1.id))
+    ctx.repos.stops.add(StopChange(None, b2.id, date(2026, 5, 2), D(160), StopReason.MANUAL))
+    ctx.events.portfolios_changed.emit()
+    window.show_page(f"portfolio:{p.id}")
+    m = window.current_tab().model
+    parent = m.index(0, 0)
+    rows = [(m.index(r, COL_INDEX["sector"], parent).data(CELL_ROLE).text,
+             m.index(r, COL_INDEX["status"], parent).data(CELL_ROLE).text) for r in range(m.rowCount(parent))]
+    assert rows == [("▲ BUY  #1", "lot #1"), ("▲ BUY  #2", "lot #2"), ("▼ SELL  #1", "lot #2"),
+                    ("▲ STOP  #1", "lot #1"), ("▼ SELL  #2", "lot #1"), ("▲ STOP  #2", "lot #2")]

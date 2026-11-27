@@ -399,3 +399,11 @@ Choices made where PLAN.md / DESIGN_SYSTEM.md were silent or ambiguous.
   zero-length line, which Qt paints as garbage when recorded in a QPicture (it filled the whole plot). Wicks are
   now skipped when high = low, and when every bar is flat the chart draws an `accent` closing-price line instead
   of candles (they'd only be identical green ticks). The SMA, level lines and entry tag work as before.
+- **Child-row numbering and the Stop column (2026-11-27, user request).** In Stock Trading the number after
+  BUY / SELL / STOP used to mean different things (BUY and STOP: the lot; SELL: the sale within its lot). It now
+  counts that kind of event across the whole position in date order (SELL #3 = the 3rd sale, STOP #2 = the 2nd
+  stop change, whichever lot), and the lot is in the Status column on every child row ("lot #1"; a stop-out sell
+  keeps its Stop-out badge). The Stop column reads as the stop's history: the BUY row shows the lot's **initial**
+  stop (it showed the current one, so PSX listed 204.84 three times), each STOP row the stop it set, and only the
+  stop still in effect is in the `stop` colour; the position row keeps the current stop pill. Long-term
+  holdings still number sells per lot.
