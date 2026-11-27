@@ -113,3 +113,17 @@ def test_open_position_metrics():
 def test_histogram():
     h = r_histogram([D("1.05"), D("2.00"), D("-0.3"), D("-1")])
     assert h == {D("-1.0"): 1, D("-0.5"): 1, D("1.0"): 1, D("2.0"): 1}
+
+
+def test_sqn_caps_n_and_rates():
+    from trailhead.core.stats import TradeUnit, sqn_rating
+
+    units = [TradeUnit(D(1), D(r), None) for r in ("2", "-1")]
+    s = trade_stats(units)  # E 0.5, stdev √4.5
+    assert r2(s.sqn) == r2(D(2).sqrt() * D("0.5") / D("4.5").sqrt())
+    many = trade_stats(units * 100)  # 200 trades: N counts as 100
+    assert r2(many.sqn) == r2(10 * many.expectancy / many.stdev)
+    assert trade_stats(units[:1]).sqn is None  # no stdev from one trade
+    assert [sqn_rating(D(v)) for v in ("-0.1", "0", "1.6", "2", "2.5", "3", "5", "7")] == [
+        "Losing", "Poor", "Below avg", "Average", "Good", "Excellent", "Superb", "Holy grail"]
+    assert sqn_rating(None) is None

@@ -1,4 +1,5 @@
-"""Performance table: closed-trade stats per strategy, time frame or exit plan, with an expectancy range plot."""
+"""Performance table: closed-trade stats per strategy, time frame or exit plan (or strategy with its time frames
+nested under it), with an R strip per group: every trade's R, plus the expectancy and its ≈95% range."""
 
 from __future__ import annotations
 
@@ -6,7 +7,7 @@ from collections.abc import Callable
 from decimal import Decimal
 
 from PySide6.QtCore import QModelIndex, QPointF, QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPen
+from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHeaderView,
@@ -15,9 +16,11 @@ from PySide6.QtWidgets import (
     QStyleOptionViewItem,
     QTableWidget,
     QTableWidgetItem,
+    QWidget,
 )
 
 from ...core.performance import LOW_SAMPLE, NONE_LABEL, RANGE_SE, GroupRow
+from ...core.stats import SQN_MIN_TRADES, sqn_rating
 from ...ui import format as fmt
 from ...ui import theme
 from ...ui.theme import tokens
@@ -25,7 +28,9 @@ from ...ui.widgets.badge import badge_width, paint_badge
 
 ROW_ROLE = Qt.ItemDataRole.UserRole
 ROW_H = 48
-RANGE_W = 180
+RANGE_W = 280
+INDENT = tokens.SPACE[5]  # nested (inner) rows
+AXIS_CLAMP = (-4.0, 10.0)  # one wild trade mustn't flatten the rest; it's drawn at the edge
 PAD = tokens.SPACE[2]
 
 
@@ -62,20 +67,26 @@ COLUMNS: list[Col] = [
     ("Expectancy", lambda g: _r(g.stats.expectancy),
      lambda g: f"± {fmt.number(g.half_range)}" if g.half_range is not None else "",
      lambda g: _tone(g.stats.expectancy), lambda g: g.stats.expectancy),
-    ("Range (≈95%)", lambda g: "" if g.n else "No closed trades yet", None, None, lambda g: g.stats.expectancy),
+    ("R range", lambda g: "" if g.n else "No closed trades yet", None, None, lambda g: g.stats.expectancy),
     ("StDev", lambda g: fmt.ratio(g.stats.stdev), None, None, lambda g: g.stats.stdev),
-    ("R / StDev", lambda g: fmt.ratio(g.stats.r_over_stdev), None, None, lambda g: g.stats.r_over_stdev),
+    ("SQN", lambda g: fmt.ratio(g.stats.sqn), lambda g: sqn_rating(g.stats.sqn) or "",
+     lambda g: "negative" if g.stats.sqn is not None and g.stats.sqn < 0 else None, lambda g: g.stats.sqn),
     ("P/L", _dash_if_empty(lambda g: fmt.signed_money(g.stats.total_pl)), None,
      lambda g: _tone(g.stats.total_pl) if g.n else None, lambda g: g.stats.total_pl if g.n else None),
     ("Avg days", lambda g: fmt.number(g.avg_days, 0), None, None, lambda g: g.avg_days),
 ]
-C_NAME, C_RANGE = 0, 8
+C_NAME, C_RANGE, C_SQN = 0, 8, 10
 TOOLTIPS = {
     1: "Closed trades in the period", 2: "Still open (any period)",
     4: "Average R of winning trades", 5: "Average R of losing trades",
     6: "Gross profit ÷ gross loss ($)", 7: "Average R per closed trade",
-    8: f"Expectancy ± {RANGE_SE} standard errors (≈95%). A range that crosses 0 is no evidence of an edge; "
-       "ranges that overlap a lot can't be told apart yet.",
+    8: "Top: each dot is one closed trade at its R (green win, red loss), so you see the spread of results.\n"
+       f"Bottom: the diamond is the expectancy (average R); the capped line is ± {RANGE_SE} standard errors, "
+       "the range the true expectancy\nprobably (≈95%) lies in. If it crosses 0 there's no evidence of an edge "
+       "yet; groups whose ranges overlap a lot can't be told apart yet.",
+    10: "System Quality Number (Van Tharp): √N × expectancy ÷ StDev, N capped at 100.\n"
+        "Under 1.6 poor · 1.6 below average · 2 average · 2.5 good · 3 excellent · 5 superb · 7+ holy grail.\n"
+        f"Needs about {SQN_MIN_TRADES} trades to mean much. Above 2, the ≈95% expectancy bar clears 0.",
     11: "Realized P/L of the closed trades (partial sells of still-open lots are not included)",
     12: "Average days from entry to close",
 }
@@ -95,7 +106,7 @@ class _Delegate(QStyledItemDelegate):
         if g is None:
             return QSize(60, ROW_H)
         if col == C_NAME:
-            w = QFontMetrics(theme.font("body_strong")).horizontalAdvance(g.label)
+            w = QFontMetrics(theme.font(_name_font(g))).horizontalAdvance(g.label) + (INDENT if g.parent else 0)
             if g.low_sample:
                 w += tokens.SPACE[2] + badge_width("Low sample")
             return QSize(w + 2 * PAD + tokens.SPACE[3], ROW_H)
@@ -138,11 +149,14 @@ class _Delegate(QStyledItemDelegate):
 
     def _paint_name(self, qp: QPainter, r: QRectF, g: GroupRow) -> None:
         p = theme.palette()
-        qp.setFont(theme.font("body_strong"))
+        if g.parent:
+            r = r.adjusted(INDENT, 0, 0, 0)
+        font = _name_font(g)
+        qp.setFont(theme.font(font))
         qp.setPen(QColor(p.text_muted if g.label == NONE_LABEL else p.text))
         qp.drawText(r, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, g.label)
         if g.low_sample:
-            x = r.left() + QFontMetrics(theme.font("body_strong")).horizontalAdvance(g.label) + tokens.SPACE[2]
+            x = r.left() + QFontMetrics(theme.font(font)).horizontalAdvance(g.label) + tokens.SPACE[2]
             paint_badge(qp, QRectF(x, r.top(), r.right() - x, r.height()), "Low sample", "action")
 
     def _paint_number(self, qp: QPainter, r: QRectF, g: GroupRow, col: int) -> None:
@@ -151,7 +165,7 @@ class _Delegate(QStyledItemDelegate):
         tone = tone_f(g) if tone_f is not None else None
         value = text(g)
         color = {"positive": p.positive, "negative": p.negative}.get(tone or "", p.text)
-        if value == fmt.DASH or col == 2:
+        if value == fmt.DASH or col == 2 or (col == C_SQN and g.n < SQN_MIN_TRADES and color == p.text):
             color = p.text_muted
         qp.setPen(QColor(color))
         qp.setFont(theme.font("num", weight=600 if g.is_total else None))
@@ -167,36 +181,106 @@ class _Delegate(QStyledItemDelegate):
 
     def _paint_range(self, qp: QPainter, r: QRectF, g: GroupRow) -> None:
         p = theme.palette()
-        box = QRectF(r.left(), r.top(), RANGE_W, r.height())
+        box = QRectF(r.center().x() - RANGE_W / 2, r.top(), RANGE_W, r.height())  # centred under the header
         if not g.n:
             qp.setPen(QColor(p.text_muted))
             qp.setFont(theme.font("caption"))
-            qp.drawText(box, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "No closed trades yet")
+            qp.drawText(box, Qt.AlignmentFlag.AlignCenter, "No closed trades yet")
             return
         lo, hi = self.table.axis
-        cy = box.center().y() - (6 if g.is_total else 0)
 
         def x(v: float) -> float:
             return box.left() + box.width() * (min(max(v, lo), hi) - lo) / (hi - lo)
 
-        qp.setPen(QPen(QColor(p.border_strong), 1))
-        qp.drawLine(QPointF(x(0), cy - 9), QPointF(x(0), cy + 9))
-        rng = g.range
-        if rng is not None:
-            qp.setPen(QPen(QColor(p.text_muted), 2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-            qp.drawLine(QPointF(x(float(rng[0])), cy), QPointF(x(float(rng[1])), cy))
-        e = g.stats.expectancy
+        # two lanes: the trades on top, the expectancy and its range below; the total row leaves room for labels
+        top = box.top() + (7 if g.is_total else 10)
+        trades_y, exp_y = top + 5, top + 19
+        for t in self.table.ticks:  # faint whole-R grid, stronger at 0
+            qp.setPen(QPen(QColor(p.border_strong if t == 0 else p.border), 1))
+            qp.drawLine(QPointF(x(t), top - 2), QPointF(x(t), exp_y + 5))
+        for v in g.rs:
+            paint_trade_dot(qp, x(float(v)), trades_y, v)
+        rng, e = g.range, g.stats.expectancy
         if e is not None:
-            qp.setPen(Qt.PenStyle.NoPen)
-            qp.setBrush(QColor(p.text if g.is_total else p.accent))
-            qp.drawEllipse(QPointF(x(float(e)), cy), 5, 5)
+            x0, x1 = (x(float(rng[0])), x(float(rng[1]))) if rng is not None else (None, None)
+            paint_error_bar(qp, x(float(e)), exp_y, x0, x1, p.text if g.is_total else p.accent)
         if g.is_total:  # axis labels under the last row
             qp.setPen(QColor(p.text_muted))
             qp.setFont(theme.font("caption"))
             for t in self.table.ticks:
                 label = "0" if t == 0 else f"{t:+g}R"
-                tx = x(t)
-                qp.drawText(QRectF(tx - 20, cy + 8, 40, 14), Qt.AlignmentFlag.AlignCenter, label)
+                qp.drawText(QRectF(x(t) - 20, exp_y + 6, 40, 14), Qt.AlignmentFlag.AlignCenter, label)
+
+
+def paint_trade_dot(qp: QPainter, x: float, y: float, r: Decimal | float) -> None:
+    """One closed trade: a dot at its R, green for a win, red for a loss."""
+    p = theme.palette()
+    c = p.positive if r > 0 else p.negative if r < 0 else p.text_muted
+    qp.setPen(Qt.PenStyle.NoPen)
+    qp.setBrush(theme.qcolor(c, 0.7))
+    qp.drawEllipse(QPointF(x, y), 3, 3)
+
+
+def paint_error_bar(qp: QPainter, xe: float, y: float, x0: float | None, x1: float | None, color: str) -> None:
+    """Expectancy as a diamond, its ≈95% range as a capped line (|——◆——|)."""
+    qp.setBrush(Qt.BrushStyle.NoBrush)
+    if x0 is not None and x1 is not None:
+        qp.setPen(QPen(QColor(color), 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap))
+        qp.drawLine(QPointF(x0, y), QPointF(x1, y))
+        for xc in (x0, x1):
+            qp.drawLine(QPointF(xc, y - 4), QPointF(xc, y + 4))
+    qp.setPen(Qt.PenStyle.NoPen)
+    qp.setBrush(QColor(color))
+    qp.drawPolygon(QPolygonF([QPointF(xe, y - 5), QPointF(xe + 5, y), QPointF(xe, y + 5), QPointF(xe - 5, y)]))
+
+
+class RangeLegend(QWidget):
+    """Key for the R range column, shown in the toolbar while the Performance table is."""
+
+    ITEMS = [("trades", "One closed trade's R"), ("bar", "Expectancy and its ≈95% range")]
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setToolTip(TOOLTIPS[C_RANGE])
+        fm = QFontMetrics(theme.font("caption"))
+        self._glyph_w = {"trades": 22, "bar": 30}
+        w = sum(self._glyph_w[k] + tokens.SPACE[2] + fm.horizontalAdvance(t) for k, t in self.ITEMS)
+        self.setFixedSize(int(w + tokens.SPACE[4] * (len(self.ITEMS) - 1)) + 2, 20)
+
+    def paintEvent(self, _e) -> None:  # noqa: N802
+        p = theme.palette()
+        qp = QPainter(self)
+        qp.setRenderHint(QPainter.RenderHint.Antialiasing)
+        qp.setFont(theme.font("caption"))
+        fm = QFontMetrics(qp.font())
+        x, y = 1.0, self.height() / 2
+        for key, text in self.ITEMS:
+            gw = self._glyph_w[key]
+            if key == "trades":
+                paint_trade_dot(qp, x + 4, y, 1)
+                paint_trade_dot(qp, x + 12, y, -1)
+            else:
+                paint_error_bar(qp, x + gw / 2, y, x + 1, x + gw - 1, p.accent)
+            x += gw + tokens.SPACE[2]
+            qp.setPen(QColor(p.text_muted))
+            qp.drawText(QRectF(x, 0, fm.horizontalAdvance(text) + 2, self.height()),
+                        Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, text)
+            x += fm.horizontalAdvance(text) + tokens.SPACE[4]
+        qp.end()
+
+
+def _name_font(g: GroupRow) -> str:
+    return "body" if g.parent else "body_strong"
+
+
+def _range_tip(g: GroupRow) -> str:
+    lines = []
+    if g.r_spread is not None:
+        worst, median, best = g.r_spread
+        lines.append(f"{len(g.rs)} trades · worst {_r(worst)} · median {_r(median)} · best {_r(best)}")
+    if g.range is not None:
+        lines.append(f"Expectancy {_r(g.stats.expectancy)}, ≈95% range {_r(g.range[0])} to {_r(g.range[1])}")
+    return "\n".join(lines)
 
 
 class PerformanceTable(QTableWidget):
@@ -242,9 +326,9 @@ class PerformanceTable(QTableWidget):
         self.setHorizontalHeaderLabels(labels)
         for c in range(len(COLUMNS)):
             it = self.horizontalHeaderItem(c)
-            left = c in (C_NAME, C_RANGE)
-            it.setTextAlignment((Qt.AlignmentFlag.AlignLeft if left else Qt.AlignmentFlag.AlignRight)
-                                | Qt.AlignmentFlag.AlignVCenter)
+            h_align = (Qt.AlignmentFlag.AlignLeft if c == C_NAME else
+                       Qt.AlignmentFlag.AlignHCenter if c == C_RANGE else Qt.AlignmentFlag.AlignRight)
+            it.setTextAlignment(h_align | Qt.AlignmentFlag.AlignVCenter)
             it.setToolTip(TOOLTIPS.get(c, ""))
         self.horizontalHeaderItem(C_NAME).setToolTip(
             f"Grouped by each BUY's {title.lower()}. LOW SAMPLE = fewer than {LOW_SAMPLE} closed trades.")
@@ -256,7 +340,7 @@ class PerformanceTable(QTableWidget):
 
     def selected_label(self) -> str | None:
         g = self.selected_row()
-        return g.label if g is not None else None
+        return g.key if g is not None else None
 
     def selected_row(self) -> GroupRow | None:
         items = self.selectedItems()
@@ -275,35 +359,53 @@ class PerformanceTable(QTableWidget):
                     row.append(f"{_r(rng[0])} to {_r(rng[1])}" if rng else "")
                 elif c == 7 and g.half_range is not None:
                     row.append(f"{text(g)} ± {fmt.number(g.half_range)}")
+                elif c == C_NAME:
+                    row.append(g.key + (" LOW SAMPLE" if g.low_sample else ""))
+                elif c == C_SQN and g.stats.sqn is not None:
+                    row.append(f"{text(g)} {sqn_rating(g.stats.sqn)}")
                 else:
-                    row.append(text(g) + (" LOW SAMPLE" if c == 0 and g.low_sample else ""))
+                    row.append(text(g))
             out.append(row)
         return headers, out
 
     # ------------------------------------------------------------------ internals
     def _set_axis(self) -> None:
-        vals = [0.0, 1.0]
+        vals = [-1.0, 1.0]
         for g in self.rows:
+            vals += [float(v) for v in g.rs]
             if g.range is not None:
                 vals += [float(g.range[0]), float(g.range[1])]
-            elif g.stats.expectancy is not None:
-                vals.append(float(g.stats.expectancy))
-        lo, hi = max(min(vals), -3.0), min(max(vals), 6.0)  # keep one wild outlier from flattening the rest
+        lo, hi = max(min(vals), AXIS_CLAMP[0]), min(max(vals), AXIS_CLAMP[1])
         span = hi - lo
-        self.axis = (lo - span * 0.06, hi + span * 0.06)
-        step = 1 if span <= 4 else 2
+        self.axis = (lo - span * 0.04, hi + span * 0.04)
+        step = 1 if span <= 8 else 2
         self.ticks = [t for t in range(int(lo) - 1, int(hi) + 2) if t % step == 0 and lo <= t <= hi]
 
     def _sorted(self) -> list[GroupRow]:
-        groups = [g for g in self.rows if not g.is_total]
+        """Sort each level on its own: nested rows stay under their outer row, the total stays last."""
         totals = [g for g in self.rows if g.is_total]
+        children: dict[str, list[GroupRow]] = {}
+        for g in self.rows:
+            if g.parent:
+                children.setdefault(g.parent, []).append(g)
+
+        def walk(groups: list[GroupRow]) -> list[GroupRow]:
+            out = []
+            for g in self._sort_level(groups):
+                out.append(g)
+                out += walk(children.get(g.key, []))
+            return out
+
+        return walk([g for g in self.rows if not g.is_total and not g.parent]) + totals
+
+    def _sort_level(self, groups: list[GroupRow]) -> list[GroupRow]:
         key = COLUMNS[self.sort_col][4]
         known = [g for g in groups if key(g) is not None]
         unknown = [g for g in groups if key(g) is None]
         known.sort(key=key, reverse=self.sort_desc)
         if self.sort_col == 1:  # default: most closed first, "(none)" last
             known.sort(key=lambda g: (g.label == NONE_LABEL, -g.n if self.sort_desc else g.n, -g.open_count))
-        return known + unknown + totals
+        return known + unknown
 
     def _fill(self, keep: str | None) -> None:
         self.blockSignals(True)
@@ -315,9 +417,11 @@ class PerformanceTable(QTableWidget):
                 it = QTableWidgetItem(COLUMNS[c][1](g))
                 it.setData(ROW_ROLE, g)
                 self.setItem(i, c, it)
-            if g.range is not None:
-                self.item(i, C_RANGE).setToolTip(f"{_r(g.range[0])} to {_r(g.range[1])} (≈95%)")
-            if keep is not None and g.label == keep:
+            self.item(i, C_RANGE).setToolTip(_range_tip(g))
+            if g.stats.sqn is not None and g.n < SQN_MIN_TRADES:
+                self.item(i, C_SQN).setToolTip(f"Only {g.n} closed trades: SQN needs about {SQN_MIN_TRADES} "
+                                               "to mean much")
+            if keep is not None and g.key == keep:
                 select = i
         self.set_group_title(self.group_title)  # moves the ▾ / ▴ marker to the sorted column
         if select >= 0:

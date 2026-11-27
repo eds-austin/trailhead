@@ -73,3 +73,22 @@ def test_unknown_key_and_empty():
     with pytest.raises(ValueError):
         group_performance([], [], "sector")
     assert group_performance([], [], "strategy") == []
+
+
+def test_strategy_by_timeframe_nests_inner_rows():
+    lots, positions = _book()
+    rows = group_performance(lots, positions, "strategy_timeframe", "lot")
+    assert [(r.key, r.n, r.open_count) for r in rows] == [
+        ("Breakout", 2, 0), ("Breakout · (none)", 2, 0),
+        ("Pullback", 2, 0), ("Pullback · Weekly/Daily", 2, 0),
+        (NONE_LABEL, 0, 1), (f"{NONE_LABEL} · {NONE_LABEL}", 0, 1),
+        ("All strategies", 4, 1),
+    ]
+    assert rows[1].label == NONE_LABEL and rows[1].parent == "Breakout"
+    assert rows[3].rs == rows[2].rs
+
+
+def test_r_spread():
+    lots, positions = _book()
+    pull = group_performance(lots, positions, "strategy", "lot")[1]
+    assert pull.r_spread == (D("-0.5"), D("0.75"), D(2))

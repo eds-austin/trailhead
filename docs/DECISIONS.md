@@ -220,6 +220,16 @@ Choices made where PLAN.md / DESIGN_SYSTEM.md were silent or ambiguous.
   most closed trades first; headers sort. Selecting a row points the R distribution panel at that group. It follows
   the Period and Lot / Position switches; the view and grouping are remembered per portfolio; Export CSV exports the
   performance table while it is shown. Grouping logic: `core/performance.py`.
+- **Performance view: Strategy × Time frame, R strip, SQN (2026-11-26, user request).** A fourth grouping,
+  **Strategy × Time frame**, lists each strategy followed by its time frames (indented, same columns; header sorts
+  each level separately, total stays last). A nested row's name for selection, the histogram title and CSV is
+  "Strategy · Time frame". The Range column became **R range**: top lane one dot per closed trade at its R (green
+  win, red loss), bottom lane the expectancy as a diamond with its ± 2 SE range as a capped error bar (a filled bar
+  with a dot read as a slider); a legend for both sits in the toolbar while the table is shown; the shared axis covers every trade
+  (clamped to −4R…+10R). New **SQN** column (Van Tharp): √min(N, 100) × expectancy ÷ StDev, with Tharp's rating
+  word underneath; muted under 30 trades, where Tharp says it isn't reliable. SQN is the expectancy divided by its
+  standard error, so SQN > 2 ⇔ the ≈95% bar clears 0. SQN replaces the table's R / StDev column (R / StDev × √N); the
+  R / StDev KPI card stays.
 - **Long-term Holdings portfolio type (2026-11-24, user request).** For buy-and-hold stocks, ETFs, income
   investments (REITs, bond funds …) and precious metals. No R multiples, ladder or risk settings (the portfolio
   dialog hides Max amount / Risk %; `PortfolioType.uses_risk_settings = False`). Migration 006 adds

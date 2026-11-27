@@ -449,8 +449,9 @@ Interactions:
 
 ### 7.3a Performance view
 A **Positions | Performance** switch on the table panel. Performance compares closed trades by Strategy, Time
-frame or Exit plan: Closed, Open, Win %, Avg win / loss (R), Profit factor, Expectancy ± 2 SE with a range plot,
-StDev, R / StDev, P/L, Avg days, plus a total row. LOW SAMPLE marks groups under 10 closed trades. Selecting a
+frame or Exit plan, or Strategy × Time frame (time frames nested under each strategy): Closed, Open, Win %, Avg
+win / loss (R), Profit factor, Expectancy ± 2 SE, an R range strip (every trade's R plus the expectancy bar), StDev,
+SQN (Van Tharp, with rating), P/L, Avg days, plus a total row. LOW SAMPLE marks groups under 10 closed trades. Selecting a
 group shows its R distribution in the panel beside the KPI cards. Same Period and Lot / Position switches.
 
 ### 7.4 Detail pane (bottom splitter, collapsible)

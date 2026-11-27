@@ -78,6 +78,7 @@ class TradeStats:
     expectancy: Decimal | None  # mean realized R
     stdev: Decimal | None  # sample stdev of R (n−1); None when n < 2
     r_over_stdev: Decimal | None
+    sqn: Decimal | None  # Van Tharp's System Quality Number: √min(N, 100) × expectancy ÷ stdev
     gross_profit: Decimal
     gross_loss: Decimal
     total_pl: Decimal
@@ -107,6 +108,30 @@ def closed_position_units(positions: Iterable[Position], period: Period | None =
     return out
 
 
+SQN_N_CAP = 100  # Tharp caps N so a long record doesn't inflate the score
+SQN_MIN_TRADES = 30  # Tharp: fewer trades than this and the SQN isn't reliable
+# (lower bound, rating), checked from the top. Tharp's scale; below 0 the system loses money.
+SQN_RATINGS: list[tuple[Decimal, str]] = [
+    (Decimal(7), "Holy grail"), (Decimal(5), "Superb"), (Decimal(3), "Excellent"), (Decimal("2.5"), "Good"),
+    (Decimal(2), "Average"), (Decimal("1.6"), "Below avg"), (Decimal(0), "Poor"),
+]
+
+
+def _sqn(expectancy: Decimal | None, stdev: Decimal | None, n: int) -> Decimal | None:
+    if expectancy is None or not stdev:
+        return None
+    return Decimal(min(n, SQN_N_CAP)).sqrt() * expectancy / stdev
+
+
+def sqn_rating(sqn: Decimal | None) -> str | None:
+    if sqn is None:
+        return None
+    for bound, name in SQN_RATINGS:
+        if sqn >= bound:
+            return name
+    return "Losing"
+
+
 def trade_stats(units: Sequence[TradeUnit]) -> TradeStats:
     wins = [u for u in units if u.pl > 0]
     losses = [u for u in units if u.pl < 0]
@@ -129,6 +154,7 @@ def trade_stats(units: Sequence[TradeUnit]) -> TradeStats:
         expectancy=expectancy,
         stdev=stdev,
         r_over_stdev=safe_div(expectancy, stdev),
+        sqn=_sqn(expectancy, stdev, n),
         gross_profit=gp,
         gross_loss=gl,
         total_pl=dsum(u.pl for u in units),

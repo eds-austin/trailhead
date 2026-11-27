@@ -10,7 +10,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QModelIndex, QPoint, Qt, QTimer
-from PySide6.QtGui import QAction, QGuiApplication
+from PySide6.QtGui import QAction, QFontMetrics, QGuiApplication
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -43,7 +43,7 @@ from ...ui.widgets.kpi_card import KpiStrip
 from ...ui.widgets.search_field import SearchField
 from ...ui.widgets.segmented import Segmented
 from .kpis import KPI_CARDS, compute_kpis
-from .performance_view import PerformanceTable
+from .performance_view import PerformanceTable, RangeLegend
 from .positions_view import PositionsView
 from .service import accept_dividend, dividends_by_position, load_snapshot, pending_dividends_for
 from .table_model import COL_INDEX, COLUMNS, COLUMNS_REV, NODE_ROLE, RESIZED_IN_REV, PositionsTreeModel
@@ -138,6 +138,9 @@ class PortfolioTab(QWidget):
         self.search.textChanged.connect(self._on_search)
         bar.addWidget(self.search)
         bar.addStretch(1)
+        self.range_legend = RangeLegend()
+        bar.addWidget(self.range_legend)
+        bar.addSpacing(tokens.SPACE[4])
         self.count_label = label("", role="muted")
         bar.addWidget(self.count_label)
         self.columns_btn = button("Columns", "ghost", icon="columns-3")
@@ -301,7 +304,7 @@ class PortfolioTab(QWidget):
 
     def _sync_mode_widgets(self) -> None:
         perf = self.performance_mode
-        for w in (self.group_label, self.group_by):
+        for w in (self.group_label, self.group_by, self.range_legend):
             w.setVisible(perf)
         for w in (self.filter, self.search, self.columns_btn):
             w.setVisible(not perf)
@@ -338,7 +341,7 @@ class PortfolioTab(QWidget):
         by = self.unit.value()
         noun = "position" if by == "position" else "lot"
         g = self.perf.selected_row() if self.performance_mode else None
-        self._perf_selected = g.label if g is not None else None
+        self._perf_selected = g.key if g is not None else None
         if g is None:
             period = self.current_period()
             if by == "position":
@@ -346,13 +349,22 @@ class PortfolioTab(QWidget):
             else:
                 units = closed_lot_units(self.snapshot.lots, period)
             rs, st = [u.r for u in units if u.r is not None], trade_stats(units)
-            self.hist_title.setText("R distribution")
+            title = "R distribution"
         else:
             rs, st = g.rs, g.stats
-            self.hist_title.setText(f"R distribution · {g.label}")
+            title = f"R distribution · {g.key}"
         self.hist.set_values(rs, st.expectancy, empty_text=f"No closed {noun}s in this period")
         self.hist_sub.setText(f"{st.n} closed {noun}{'s' if st.n != 1 else ''} · E {fmt.r_mult(st.expectancy)}"
                               if st.n else "")
+        self._set_hist_title(title)
+
+    def _set_hist_title(self, full: str) -> None:
+        """A nested group's name can be long: elide the title so it doesn't run into the sub line."""
+        sub_w = QFontMetrics(self.hist_sub.font()).horizontalAdvance(self.hist_sub.text())
+        room = HIST_W - 2 * tokens.SPACE[3] - sub_w - tokens.SPACE[3]
+        fm = QFontMetrics(self.hist_title.font())
+        self.hist_title.setText(fm.elidedText(full, Qt.TextElideMode.ElideRight, room))
+        self.hist_title.setToolTip(full if self.hist_title.text() != full else "")
 
     def _save_columns_later(self) -> None:
         self._col_timer.start()
