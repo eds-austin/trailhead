@@ -25,13 +25,14 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from shiboken6 import isValid
 
 from ...context import AppContext
 from ...core.models import STRATEGIES, TIMEFRAMES, Portfolio, Side, Trade
 from ...core.money import ZERO, cents
 from ...core.positions import LedgerError, Lot, fifo_allocate, open_lots_fifo, remaining_excluding
 from ...core.r_engine import EXIT_PLAN_LABELS, ActionKind, ExitPlan, Ladder, as_plan
-from ...core.sizing import check_buy, suggested_shares
+from ...core.sizing import TRANCHES, check_buy, suggested_shares
 from ...core.snapshot import PortfolioSnapshot
 from ...data.repo import RepoError
 from .. import format as fmt
@@ -96,6 +97,7 @@ class TradeDialog(UnknownSymbolMixin, AppDialog):
         self.prefill = prefill or {}
         self.result_trades: list[Trade] = []
         self._symbol_info_cache: dict[str, str] = {}
+        self._quote_requested: set[str] = set()  # symbols whose current price was fetched for this dialog
         self._build()
         self._load()
         self._update_all()
@@ -340,6 +342,20 @@ class TradeDialog(UnknownSymbolMixin, AppDialog):
         self._update_live()
         if self.ctx.market is not None and self.sym():
             self.ctx.market.validate_symbol(self.sym(), self._on_symbol_validated)
+            if self.edit_trade is None and self.sym() not in self._quote_requested:
+                sym = self.sym()
+                self._quote_requested.add(sym)
+                self.ctx.market.fetch_quote(sym, lambda res, s=sym: self._on_quote_fetched(s, res))
+
+    def _on_quote_fetched(self, symbol: str, result) -> None:
+        """Fresh price from the provider: fills Price (or Sell price) unless the user has typed one."""
+        if not isValid(self) or symbol != self.sym() or result is None or isinstance(result, Exception):
+            return  # dialog closed, symbol changed, or offline / manual mode (the stored price stays)
+        self._refresh_symbol_info()
+        target = self.price if self.is_buy() else self.sell_price
+        if not target.user_edited:
+            target.set_value(result.last)
+            self._update_live()
 
     def _on_symbol_validated(self, symbol: str, ok: bool, info: str) -> None:
         if symbol != self.sym():
@@ -467,8 +483,15 @@ class TradeDialog(UnknownSymbolMixin, AppDialog):
     def _update_buy_panel(self) -> None:
         p, s, n = self.price.value(), self.stop.value(), self.shares.value()
         sug = self._suggested()
-        self.use_suggested.setText(f"Use suggested: {sug:,}" if sug else "")
+        odd = sug % TRANCHES != 0
+        self.use_suggested.setText(f"Use suggested: {sug:,}" + (" (too few to split in quarters)" if odd else "")
+                                   if sug else "")
         self.use_suggested.setVisible(bool(sug))
+        budget = fmt.money(self.portfolio.risk_per_trade)
+        self.use_suggested.setToolTip(
+            f"The most shares, in a multiple of {TRANCHES}, whose risk stays within the {budget} per-trade budget"
+            if not odd else
+            f"The budget covers only {sug} share{'s' if sug > 1 else ''}: too few to sell in quarters")
         self._clear_warnings()
         self._warnings = []
         if p is None or p <= 0:

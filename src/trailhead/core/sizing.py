@@ -9,6 +9,7 @@ from enum import StrEnum
 from .money import floor_int
 
 RISK_TOLERANCE = Decimal("1.05")
+TRANCHES = 4  # profits are taken in quarters: a size divisible by 4 sells in whole-share tranches
 
 
 class WarningCode(StrEnum):
@@ -28,12 +29,15 @@ def risk_per_trade(max_amount: Decimal, risk_pct: Decimal) -> Decimal:
     return max_amount * risk_pct
 
 
-def suggested_shares(risk: Decimal, price: Decimal, stop: Decimal) -> int:
-    """floor(risk_per_trade / (price − stop)); 0 when the stop is invalid."""
+def suggested_shares(risk: Decimal, price: Decimal, stop: Decimal, multiple: int = TRANCHES) -> int:
+    """The most shares whose risk stays within `risk`, rounded down to a multiple of `multiple` so the tranches are
+    whole shares: floor(risk / (price − stop)), less the remainder. Below `multiple` shares the plain whole-share
+    count is returned (it can't be split evenly; the dialog says so). 0 when the stop is invalid."""
     r = price - stop
     if r <= 0 or risk <= 0:
         return 0
-    return floor_int(risk / r)
+    n = floor_int(risk / r)
+    return n - n % multiple if n >= multiple else n
 
 
 @dataclass(frozen=True)

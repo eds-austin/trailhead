@@ -7,7 +7,9 @@ def test_suggested_shares():
     risk = risk_per_trade(D(100000), D("0.01"))
     assert risk == 1000
     assert suggested_shares(risk, D("127.40"), D("121.00")) == 156
-    assert suggested_shares(risk, D("43.18"), D("40.26")) == 342
+    assert suggested_shares(risk, D("43.18"), D("40.26")) == 340  # 342 rounded down to a multiple of 4
+    assert suggested_shares(risk, D("43.18"), D("40.26"), multiple=1) == 342
+    assert suggested_shares(D(300), D(200), D(100)) == 3  # fewer than 4: not rounded to 0
     assert suggested_shares(risk, D(10), D(10)) == 0
 
 

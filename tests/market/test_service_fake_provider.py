@@ -181,3 +181,16 @@ def test_money_market_yield_is_refreshed_unless_manual(repos):
     assert [r.apy for r in rates[mine.id]] == [D("0.05")]
     run_refresh(repos, FakeProvider(), targets, TODAY + timedelta(days=1))  # unchanged yield: no new row
     assert len(repos.cash_accounts.rates([fund.id])[fund.id]) == 1
+
+
+def test_fetch_quote_for_one_symbol(repos, qtbot, tmp_path):
+    svc = MarketService(tmp_path / "m.db", FakeProvider, today_fn=lambda: TODAY)
+    got = []
+    svc.fetch_quote("DD", got.append)  # not held anywhere: fetched and stored all the same
+    qtbot.waitUntil(lambda: bool(got), timeout=5000)
+    assert got[0].last == D("127.40") and repos.market.get_quote("DD").last == D("127.40")
+    off = MarketService(tmp_path / "m.db", lambda: FakeProvider(offline=True), today_fn=lambda: TODAY)
+    got.clear()
+    off.fetch_quote("DD", got.append)
+    qtbot.waitUntil(lambda: bool(got), timeout=10000)
+    assert isinstance(got[0], ProviderError)

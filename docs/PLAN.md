@@ -332,7 +332,7 @@ The **unit of a trade is a closed lot**. This matches the spreadsheet, where eac
 
 ### 6.4 Sizing and warnings (`core/sizing.py`)
 - `risk_per_trade = max_amount × risk_pct`
-- `suggested_shares = floor(risk_per_trade / (price − stop))`
+- `suggested_shares = floor(risk_per_trade / (price − stop))`, rounded down to a multiple of 4 so the four tranches are whole shares (below 4 shares, the plain count). Entering a symbol fetches its current price for the Price field.
 - Warnings shown in the trade dialog. They don't block saving; the user can choose "Save anyway".
   - `EXCEEDS_MAX`: deployed + new cost > max_amount (the explicit requirement).
   - `EXCEEDS_RISK`: shares × R > risk_per_trade × 1.05.

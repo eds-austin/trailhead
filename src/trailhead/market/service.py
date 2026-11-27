@@ -334,6 +334,25 @@ class MarketService(QObject):
 
         self._submit(work, done)
 
+    def fetch_quote(self, symbol: str, callback: Callable[[Any], None]) -> None:
+        """Fetch and store the current quote for one symbol (the trade dialog's price), callback(Quote | None |
+        Exception) on the UI thread. A manual price pinned for the symbol is kept (the stored quote is returned)."""
+        provider = self.provider_factory()
+
+        def work():
+            quotes = with_retry(provider.quotes, [symbol])
+            repos = self.repos_factory()
+            try:
+                q = quotes.get(symbol)
+                if q is not None:
+                    repos.market.upsert_quote(Quote(symbol, q.last, q.prev_close, q.as_of, provider.name))
+                return repos.market.get_quote(symbol)
+            finally:
+                if self.repos_factory == self._open_repos:
+                    repos.conn.close()
+
+        self._submit(work, callback)
+
     def find_symbols(self, query: str, callback: Callable[[Any], None]) -> None:
         """Candidate provider symbols for what the user typed: its share-class spellings that the provider knows
         (BRK.B → BRK-B, marked likely), then search results. callback(list[SymbolMatch] | Exception)."""

@@ -28,7 +28,7 @@ def test_trade_entry_flow(ctx, window, qtbot):
     dlg.price.setText("43.18")
     dlg.stop.setText("40.26")
     dlg._apply_suggested()
-    assert dlg.shares.value() == 342
+    assert dlg.shares.value() == 340  # rounded down to a multiple of 4
     dlg.shares.setText("100")
     assert dlg.submit()
     tab._after_save(dlg.result_trades)
@@ -146,3 +146,40 @@ def test_suggested_tranche_is_next_quarter_even_when_two_are_due(ctx, window):
     d = TradeDialog(ctx, p, tab.snapshot, prefill={"side": "SELL", "symbol": "CSTM"}, parent=window)
     assert d._tranche() == 20
     assert d.use_tranche.text() == "Suggested tranche: 20"
+
+
+def test_new_buy_fetches_the_current_price(ctx, window, monkeypatch):
+    from datetime import datetime
+
+    from trailhead.core.models import Quote
+
+    p, tab = _make_portfolio(ctx, window)
+    asked = []
+
+    def fake_fetch(symbol, callback):
+        asked.append(symbol)
+        q = Quote(symbol, D("43.18"), D("42.90"), datetime(2026, 11, 20, 10), "yfinance")
+        ctx.repos.market.upsert_quote(q)
+        callback(q)
+
+    monkeypatch.setattr(ctx.market, "fetch_quote", fake_fetch)
+    dlg = TradeDialog(ctx, p, tab.snapshot, parent=window)
+    dlg.symbol.setText("DD")
+    dlg._on_symbol_done()
+    dlg._on_symbol_done()  # editingFinished fires again on focus changes: one fetch per symbol
+    assert asked == ["DD"] and dlg.price.value() == D("43.18")
+    assert "last 43.18" in dlg.symbol_info.text()
+    assert not dlg.use_suggested.isVisible() or not dlg.use_suggested.text()  # no stop yet: nothing to size
+    dlg.stop.setText("40.26")
+    dlg._update_live()
+    assert dlg.use_suggested.text() == "Use suggested: 340"
+    assert dlg.shares.value() is None  # not filled until the link is clicked
+    dlg._apply_suggested()
+    assert dlg.shares.value() == 340
+
+    typed = TradeDialog(ctx, p, tab.snapshot, parent=window)
+    typed.price.setText("41.00")
+    typed.price.user_edited = True  # a typed limit price is never overwritten
+    typed.symbol.setText("KO")
+    typed._on_symbol_done()
+    assert typed.price.value() == D("41.00")

@@ -382,3 +382,11 @@ Choices made where PLAN.md / DESIGN_SYSTEM.md were silent or ambiguous.
   "▼ Avg cost 60.00 · −20.2%" (distance from the last close), so the candles are not squashed. Both charts.
   The candle item now reports `dataBounds`, so the y range fits only the bars in view (the peek's warm-up bars
   had been stretching it; the full chart now refits when panned).
+- **Position size in multiples of 4 and a fresh price in the trade dialog (2026-11-27, user request).** Profits
+  are taken in quarters, so the suggested size is now the most shares whose risk stays within the per-trade
+  budget, **rounded down to a multiple of 4** (342 → 340); never rounded up over the budget. If the budget covers
+  fewer than 4 shares the plain count is suggested and the link says "(too few to split in quarters)". Still
+  offered through the **Use suggested** link (user choice), not filled in automatically. Entering a symbol in a
+  new trade now also fetches its **current price** from the provider (`MarketService.fetch_quote`, stored like a
+  refresh, so a held symbol's quote is updated too; a pinned manual price is kept) and fills Price / Sell price
+  unless the user typed one. Once per symbol per dialog; offline or in manual mode the stored price stays.
