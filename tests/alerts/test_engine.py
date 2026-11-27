@@ -47,3 +47,17 @@ def test_earnings_soon():
     assert kinds(a) == [AlertKind.EARNINGS_SOON]
     assert a[0].level == date_level(date(2026, 11, 24)) == D(20261124)
     assert evaluate(_snap("125", earnings=date(2026, 12, 24))) == []
+
+
+def test_target_category_depends_on_suggested_sale():
+    a = evaluate(_snap("126.50", high="126.80"))
+    assert a[0].sells and a[0].category == "TARGET_SELL"
+    confirmed = [StopChange(1, 1, TODAY, D(117), StopReason.LADDER_CONFIRMED)]
+    assert evaluate(_snap("126.50", high="126.80", stops=confirmed))[0].category == "TARGET_SELL"
+    # tranche sold, stop not raised yet → only a stop move is left
+    trades = [Trade(1, 1, "NVDA", Side.BUY, date(2026, 10, 2), D(100), D(120), initial_stop=D(114)),
+              Trade(2, 1, "NVDA", Side.SELL, date(2026, 10, 6), D(25), D(126), lot_id=1)]
+    mv = {"NVDA": MarketView(last=D("126.50"), prev_close=D("126.50"), highs=[(date(2026, 10, 5), D("126.80"))])}
+    b = evaluate(snapshot(PF, trades, [], [], mv, TODAY))
+    assert kinds(b) == [AlertKind.TARGET_REACHED] and not b[0].sells and b[0].category == "TARGET_STOP"
+    assert evaluate(_snap("113.90"))[0].category == "STOP_HIT"

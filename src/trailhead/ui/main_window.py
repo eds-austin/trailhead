@@ -8,7 +8,7 @@ import logging
 from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtCore import QByteArray, QPoint, QTimer
+from PySide6.QtCore import QByteArray, QPoint, QTimer, Signal
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -34,6 +34,7 @@ log = logging.getLogger(__name__)
 
 
 class MainWindow(QMainWindow):
+    discord_done = Signal(object)  # str error or None, emitted from the sender thread
     def __init__(self, ctx: AppContext, parent=None):
         super().__init__(parent)
         self.ctx = ctx
@@ -503,10 +504,13 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ alerts
     def _setup_alerts(self) -> None:
+        from ..alerts.discord import DiscordSender
         from ..alerts.notifier import Notifier
         from .dialogs.alerts_panel import AlertsPanel
 
         self.notifier = Notifier()
+        self.discord = DiscordSender()
+        self.discord_done.connect(self._on_discord_done)
         self.alerts_panel = AlertsPanel(self.ctx, self.content)
         self.alerts_panel.open_symbol.connect(self.reveal_symbol)
         self._alert_timer = QTimer(self)
@@ -541,6 +545,21 @@ class MainWindow(QMainWindow):
         if self.ctx.setting("alerts.desktop"):
             for a in alerts[:5]:
                 self.notifier.notify(a.title, a.message, critical=a.severity == "critical")
+        self._send_discord(alerts)
+
+    def _send_discord(self, alerts: list) -> None:
+        from ..alerts.discord import payloads, selected, valid_webhook
+
+        url = self.ctx.setting("alerts.discord.webhook") or ""
+        picked = selected(alerts, self.ctx.setting("alerts.discord.categories") or [])
+        if not picked or not valid_webhook(url):
+            return
+        names = {p.id: p.name for p in self.ctx.repos.portfolios.list()}
+        self.discord.send(url, payloads(picked, names), self.discord_done.emit)
+
+    def _on_discord_done(self, error: str | None) -> None:
+        if error:
+            self.ctx.toast("Discord alert not sent", error, "warning")
 
     def toggle_alerts(self) -> None:
         self.alerts_panel.toggle()

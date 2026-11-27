@@ -24,6 +24,17 @@ SEVERITY = {AlertKind.STOP_HIT: "critical", AlertKind.NEAR_STOP: "warning", Aler
 SEVERITY_ORDER = {"critical": 0, "warning": 1, "info": 2}
 
 
+# What an alert is about, finer than its kind: a target alert that suggests a sale is worth more attention than one
+# that only moves the stop. Outside channels (Discord) let the user pick categories.
+ALERT_CATEGORIES: dict[str, str] = {
+    "STOP_HIT": "Stop hit",
+    "NEAR_STOP": "Near stop",
+    "TARGET_SELL": "Target: sale suggested",
+    "TARGET_STOP": "Target: raise stop only",
+    "EARNINGS_SOON": "Earnings soon",
+}
+
+
 @dataclass(frozen=True)
 class AlertSettings:
     near_stop_pct: Decimal = Decimal("0.02")
@@ -39,10 +50,17 @@ class Alert:
     level: Decimal | None
     title: str
     message: str
+    sells: bool = False  # a target alert that suggests selling shares
 
     @property
     def severity(self) -> str:
         return SEVERITY[self.kind]
+
+    @property
+    def category(self) -> str:
+        if self.kind == AlertKind.TARGET_REACHED:
+            return "TARGET_SELL" if self.sells else "TARGET_STOP"
+        return self.kind.value
 
 
 def date_level(d: date) -> Decimal:
@@ -80,7 +98,8 @@ def evaluate(snap: PortfolioSnapshot, settings: AlertSettings = AlertSettings())
                 out.append(Alert(
                     AlertKind.TARGET_REACHED, pid, pv.symbol, lot.id, trigger,
                     f"{pv.symbol} — {st.reached.label} target reached",
-                    f"Lot #{lot.no} reached {fmt.price(trigger)} ({st.reached.name}). Suggested: {', '.join(todo)}."))
+                    f"Lot #{lot.no} reached {fmt.price(trigger)} ({st.reached.name}). Suggested: {', '.join(todo)}.",
+                    sells=any(a.kind == ActionKind.SELL_TRANCHE for a in pending)))
         d = pv.market.next_earnings
         days = pv.earnings_soon_days
         if d is not None and days is not None and 0 <= days <= settings.earnings_days:
@@ -111,6 +130,6 @@ def evaluate_holdings(snap, settings: AlertSettings = AlertSettings()) -> list[A
         if h.target_hit:
             out.append(Alert(AlertKind.TARGET_REACHED, pid, h.symbol, lot_id, h.target,
                              f"{h.symbol} — Target reached",
-                             f"Last {fmt.price(h.last)} ≥ target {fmt.price(h.target)}."))
+                             f"Last {fmt.price(h.last)} ≥ target {fmt.price(h.target)}.", sells=True))
     out.sort(key=lambda a: (SEVERITY_ORDER[a.severity], a.symbol))
     return out

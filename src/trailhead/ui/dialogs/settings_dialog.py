@@ -1,12 +1,17 @@
-"""Settings: backup folder & retention, refresh, alert thresholds, notifications, density, data provider."""
+"""Settings: backup folder & retention, refresh, alert thresholds, notifications (desktop, Discord), density,
+data provider."""
 
 from __future__ import annotations
 
 from decimal import Decimal
 
-from PySide6.QtWidgets import QCheckBox, QComboBox, QFileDialog, QLineEdit, QWidget
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import QCheckBox, QComboBox, QFileDialog, QGridLayout, QLineEdit, QWidget
 
+from ...alerts.discord import DiscordSender, test_payload, valid_webhook
+from ...alerts.engine import ALERT_CATEGORIES
 from ...context import AppContext
+from ..theme import tokens
 from ..widgets.common import button, label
 from ..widgets.number_edit import NumberEdit
 from .base import AppDialog, FieldGrid
@@ -16,6 +21,8 @@ AUTO_CHOICES = [(0, "Off"), (5, "Every 5 minutes"), (15, "Every 15 minutes"), (3
 
 
 class SettingsDialog(AppDialog):
+    test_done = Signal(object)  # str error or None, emitted from the sender thread
+
     def __init__(self, ctx: AppContext, parent: QWidget | None = None):
         super().__init__("Settings", parent, width=560)
         self.ctx = ctx
@@ -83,6 +90,7 @@ class SettingsDialog(AppDialog):
         self.desktop.setChecked(bool(s.get("alerts.desktop")))
         g3.add("desktop", "", self.desktop, span=2)
         self.body.addLayout(g3)
+        self._build_discord(s)
 
         self.body.addWidget(label("DISPLAY", role="caption"))
         g4 = FieldGrid()
@@ -92,6 +100,67 @@ class SettingsDialog(AppDialog):
         self.density.setCurrentIndex(max(0, self.density.findData(s.get("ui.table_density") or "compact")))
         g4.add("density", "Table density", self.density, span=2)
         self.body.addLayout(g4)
+
+    def _build_discord(self, s) -> None:
+        self.body.addWidget(label("DISCORD", role="caption"))
+        g = FieldGrid()
+        self.grid_discord = g
+        self.webhook = QLineEdit(s.get("alerts.discord.webhook") or "")
+        self.webhook.setPlaceholderText("https://discord.com/api/webhooks/…")
+        self.webhook.setEchoMode(QLineEdit.EchoMode.Password)  # anyone with the URL can post to the channel
+        self.webhook.setToolTip("In Discord: Server Settings → Integrations → Webhooks → New Webhook → "
+                                "Copy Webhook URL")
+        self.test_btn = button("Send test")
+        self.test_btn.setAutoDefault(False)
+        self.test_btn.clicked.connect(self._send_test)
+        g.add("webhook", "Webhook URL", self.webhook, extra=self.test_btn, span=2)
+        g.next_row()
+        picked = set(s.get("alerts.discord.categories") or [])
+        self.discord_cats: dict[str, QCheckBox] = {}
+        box = QWidget()
+        cg = QGridLayout(box)
+        cg.setContentsMargins(0, tokens.SPACE[1], 0, 0)
+        cg.setHorizontalSpacing(tokens.SPACE[4])
+        cg.setVerticalSpacing(tokens.SPACE[2])
+        for i, (key, text) in enumerate(ALERT_CATEGORIES.items()):
+            cb = QCheckBox(text)
+            cb.setChecked(key in picked)
+            self.discord_cats[key] = cb
+            cg.addWidget(cb, i // 2, i % 2)
+        g.add("categories", "Send", box, span=2)
+        self.body.addLayout(g)
+        self.test_status = label("")
+        self.test_status.hide()
+        self.body.addWidget(self.test_status)
+        self.body.addWidget(label("Sent while Trailhead is running, once per alert (like the bell).\n"
+                                  "Find the URL in Discord: Server Settings → Integrations → Webhooks.",
+                                  role="muted"))
+        self._sender = DiscordSender()
+        self.test_done.connect(self._on_test_done)
+
+    def _send_test(self) -> None:
+        url = self.webhook.text().strip()
+        if not valid_webhook(url):
+            self.grid_discord.set_error("webhook", "Paste the webhook URL Discord gives you")
+            return
+        self.grid_discord.set_error("webhook", None)
+        self.test_btn.setEnabled(False)
+        self._set_test_status("Sending…", None)
+        self._sender.send(url, [test_payload()], self.test_done.emit)
+
+    def _on_test_done(self, error: str | None) -> None:
+        self.test_btn.setEnabled(True)
+        if error:
+            self._set_test_status(f"Test failed: {error}", "negative")
+        else:
+            self._set_test_status("Test message sent. Check the channel.", "positive")
+
+    def _set_test_status(self, text: str, tone: str | None) -> None:
+        self.test_status.setText(text)
+        self.test_status.setProperty("tone", tone or "")
+        self.test_status.style().unpolish(self.test_status)
+        self.test_status.style().polish(self.test_status)
+        self.test_status.show()
 
     def _browse(self) -> None:
         d = QFileDialog.getExistingDirectory(self, "Backup folder", self.backup_dir.text() or
@@ -115,6 +184,10 @@ class SettingsDialog(AppDialog):
         if risk is None or risk <= 0:
             self.grid3.set_error("risk_warn", "Enter a percent")
             ok = False
+        webhook = self.webhook.text().strip()
+        if webhook and not valid_webhook(webhook):
+            self.grid_discord.set_error("webhook", "Paste the webhook URL Discord gives you")
+            ok = False
         if not ok:
             return False
         s = self.ctx.repos.settings
@@ -128,5 +201,7 @@ class SettingsDialog(AppDialog):
         s.set("alerts.earnings_days", int(earn))  # type: ignore[arg-type]
         s.set("alerts.open_risk_warn_pct", float(risk / 100))  # type: ignore[operator]
         s.set("alerts.desktop", self.desktop.isChecked())
+        s.set("alerts.discord.webhook", webhook)
+        s.set("alerts.discord.categories", [k for k, cb in self.discord_cats.items() if cb.isChecked()])
         s.set("ui.table_density", self.density.currentData())
         return True

@@ -562,6 +562,10 @@ class MarketDataProvider(Protocol):
   - a toast appears;
   - a desktop notification is sent if enabled (title "NVDA — Stop hit", body "Last 118.10 ≤ stop 118.40. Sell remaining 75 sh.").
 - The alerts panel lists alerts with Acknowledge / Acknowledge all.
+- **Discord (optional):** a channel webhook in Settings. Each alert has a category (Stop hit, Near stop,
+  Target: sale suggested, Target: raise stop only, Earnings soon); new alerts in the ticked categories are posted as
+  embeds (≤ 10 per message), default Stop hit + Target: sale suggested. A "Send test" button checks the URL.
+  `alerts/discord.py`, stdlib `urllib`, background thread; a failure shows a warning toast.
 - Because the engine is UI-free, a headless `trailhead --check-alerts` command (cron or systemd timer, e.g. on the NAS) can be added later.
 
 ---

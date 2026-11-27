@@ -909,6 +909,8 @@ SETTINGS_DEFAULTS: dict[str, Any] = {
     "alerts.near_stop_pct": 0.02,
     "alerts.earnings_days": 7,
     "alerts.desktop": True,
+    "alerts.discord.webhook": "",
+    "alerts.discord.categories": ["STOP_HIT", "TARGET_SELL"],
     "alerts.open_risk_warn_pct": 0.06,
     "ui.table_density": "compact",
     "market.provider": "yfinance",

@@ -353,3 +353,10 @@ Choices made where PLAN.md / DESIGN_SYSTEM.md were silent or ambiguous.
   migration (`core/metals.py`). Shown as "Gold" with "5 oz" in the table, Dashboard and toasts; search matches the
   metal name; Find symbol, spin-off, dividends, splits, Change symbol and Edit sector are not offered for metals.
   No coin / bar presets or premium tracking.
+- **Discord alerts (2026-11-26, user request).** Alerts can also go to a Discord channel through a webhook, so
+  they reach the phone. The user picks which **categories** are sent; target alerts split into "sale suggested"
+  (a tranche is due, or a Long-term holding hit its target) and "raise stop only", so the default can be as
+  narrow as Stop hit + Target: sale suggested. Sent once per alert, from the same dedup as the bell, and only
+  while the app runs (a headless `--check-alerts` for a timer is still a possible follow-up). No new dependency
+  (stdlib `urllib`); `post()` refuses anything that isn't a Discord webhook URL; messages never @mention. The URL
+  is stored in the local settings table like other settings and shown masked.

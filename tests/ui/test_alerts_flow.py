@@ -51,3 +51,51 @@ def test_confirm_stop_writes_stop_change(ctx, window):
     d = TradeDialog(ctx, p, tab.snapshot, prefill={"side": "SELL", "symbol": "NVDA", "lot_id": a.lot_id,
                                                    "shares": a.shares, "price": pv.last}, parent=window)
     assert d.sell_shares.value() == 25 and d.sell_price.value() == D("126.50")
+
+
+def test_stop_hit_goes_to_discord_when_selected(ctx, window, qtbot):
+    url = "https://discord.com/api/webhooks/1/token"
+    sent = []
+    window.discord.poster = lambda u, body: sent.append((u, body))
+    ctx.repos.settings.set("alerts.discord.webhook", url)
+    _, _tab = _setup(ctx, window)
+    ctx.repos.market.upsert_quote(Quote("NVDA", D("116"), D(115), datetime(2026, 11, 20, 10), "manual", True))
+    ctx.events.market_updated.emit()
+    assert [a.kind.value for a in window.run_alerts()] == ["NEAR_STOP"]  # not in the default categories
+    ctx.repos.market.upsert_quote(Quote("NVDA", D("113.50"), D(115), datetime(2026, 11, 20, 11), "manual", True))
+    ctx.events.market_updated.emit()
+    assert [a.kind.value for a in window.run_alerts()] == ["STOP_HIT"]
+    qtbot.waitUntil(lambda: len(sent) == 1, timeout=3000)
+    u, body = sent[0]
+    assert u == url and [e["title"] for e in body["embeds"]] == ["NVDA — Stop hit"]
+    assert body["embeds"][0]["footer"]["text"] == "Swing"
+
+
+def test_discord_failure_toasts(ctx, window):
+    before = len(window.toasts.toasts())
+    window.discord_done.emit(None)
+    assert len(window.toasts.toasts()) == before
+    window.discord_done.emit("Discord answered HTTP 500")
+    t = window.toasts.toasts()[-1]
+    assert len(window.toasts.toasts()) == before + 1 and t.severity == "warning"
+
+
+def test_settings_discord_section(ctx, window, qtbot):
+    from trailhead.ui.dialogs.settings_dialog import SettingsDialog
+
+    d = SettingsDialog(ctx, window)
+    assert [k for k, cb in d.discord_cats.items() if cb.isChecked()] == ["STOP_HIT", "TARGET_SELL"]
+    d.webhook.setText("not a url")
+    assert not d.submit()
+    d._send_test()
+    assert d.test_btn.isEnabled()  # refused before sending
+    sent = []
+    d._sender.poster = lambda u, body: sent.append(body)
+    d.webhook.setText("https://discord.com/api/webhooks/1/token")
+    d.discord_cats["NEAR_STOP"].setChecked(True)
+    d._send_test()
+    qtbot.waitUntil(lambda: d.test_btn.isEnabled(), timeout=3000)
+    assert "sent" in d.test_status.text() and "connected" in sent[0]["content"]
+    assert d.submit()
+    assert ctx.repos.settings.get("alerts.discord.categories") == ["STOP_HIT", "NEAR_STOP", "TARGET_SELL"]
+    assert ctx.repos.settings.get("alerts.discord.webhook") == "https://discord.com/api/webhooks/1/token"
