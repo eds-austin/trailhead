@@ -24,6 +24,7 @@ from ...ui.theme import tokens
 from ...ui.widgets.common import button, frame, label
 from ...ui.widgets.empty_state import EmptyState
 from ...ui.widgets.kpi_card import KpiStrip
+from ...ui.widgets.price_peek import PeekController, PeekInfo
 from ...ui.widgets.search_field import SearchField
 from ...ui.widgets.segmented import Segmented
 from ..stock_trading.positions_view import PositionsView
@@ -34,6 +35,22 @@ from .service import load_holdings, pl_points
 from .table_model import COLUMNS, NODE_ROLE, HoldingsTreeModel, action_buttons
 
 ALLOC_W = 300
+
+
+def peek_info(index: QModelIndex) -> PeekInfo | None:
+    """Hover peek for a holding's Symbol cell: last price against its stop and profit target (both optional)."""
+    if index.parent().isValid() or COLUMNS[index.column()].key != "symbol":
+        return None
+    node = index.data(NODE_ROLE)
+    if node is None:
+        return None
+    h: HoldingView = node.pv
+    name = h.market.name or ""
+    if is_bullion(h.symbol):
+        name = "Bullion · per troy ounce"
+    return PeekInfo(h.symbol, display_symbol(h.symbol), name, h.last, h.day_pct, entry=h.avg_cost,
+                    entry_label="Avg cost", stop=h.stop, target=h.target,
+                    closed_on=h.position.close_date if h.is_closed else None)
 
 
 class LongTermTab(QWidget):
@@ -118,6 +135,7 @@ class LongTermTab(QWidget):
         self.view.activated_position.connect(self._on_position_activated)
         self.view.customContextMenuRequested.connect(self._context_menu)
         self.view.action_clicked.connect(self._on_action_clicked)
+        self.peek = PeekController(self.view, self.ctx, peek_info)
         h = self.view.header()
         for sig in (h.sortIndicatorChanged, h.sectionMoved, h.sectionResized):
             sig.connect(lambda *_: self._col_timer.start())

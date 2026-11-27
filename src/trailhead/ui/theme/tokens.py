@@ -31,6 +31,8 @@ class Palette:
     target: str = "#22C3D6"
     warning: str = "#E3B341"
     info: str = "#9A8CFF"
+    # Chart series
+    sma: str = "#D66BD9"  # 18-day moving average on candle charts (drawn at 70% alpha)
 
 
 DARK = Palette()
@@ -58,6 +60,10 @@ PILL_H = 22
 SIDEBAR_ITEM_H = 40
 TOAST_W = 340
 ALERTS_PANEL_W = 360
+PEEK_W = 360  # hover price peek over a holding's symbol
+PEEK_CHART_H = 150
+PEEK_DELAY_MS = 450
+PEEK_DAYS = 92  # calendar days of candles in the peek (about 3 months)
 DIALOG_W = 520
 DIALOG_BUTTON_MIN_W = 80  # footer buttons: a short label ("Done", "OK") still reads as a button
 CHILD_INDENT = 20

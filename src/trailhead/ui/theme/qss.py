@@ -151,6 +151,7 @@ QFrame[role="kpi-card"] QLabel[role="kpi-label"] {{ color: {p.text_muted}; font-
 QFrame[role="kpi-card"] QLabel[role="kpi-value"] {{ font-family: "JetBrains Mono";
     font-size: {_px("kpi_value")}px; font-weight: 600; }}
 QFrame[role="panel"] {{ background: {p.surface}; border: 1px solid {p.border}; border-radius: {r_lg}px; }}
+QFrame[role="peek"] {{ background: {p.surface_2}; border: 1px solid {p.border_strong}; border-radius: {r_lg}px; }}
 QFrame[role="inset"] {{ background: {p.surface}; border: 1px solid {p.border}; border-radius: {r_md}px; }}
 QFrame[role="warning-strip"] {{ background: {alpha(p.warning, 0.12)}; border-radius: {r_sm}px; }}
 QFrame[role="warning-strip"] QLabel {{ color: {p.warning}; }}

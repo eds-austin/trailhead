@@ -360,3 +360,25 @@ Choices made where PLAN.md / DESIGN_SYSTEM.md were silent or ambiguous.
   while the app runs (a headless `--check-alerts` for a timer is still a possible follow-up). No new dependency
   (stdlib `urllib`); `post()` refuses anything that isn't a Discord webhook URL; messages never @mention. The URL
   is stored in the local settings table like other settings and shown masked.
+- **Hover price peek (2026-11-27, user request: a chart of the price against the stop and next target without
+  cluttering the table).** Resting the mouse on a holding's **Symbol** cell for 450 ms (Stock Trading and
+  Long-term) shows a read-only card beside the row: symbol, name, last and day %, about 3 months of daily candles
+  (`CandleChart(compact=True)`: no volume, crosshair, readout or R ladder) with the STOP and TGT pills and the
+  entry (Avg / Avg cost) line, and a footer in words: "−4.2% to stop", "+8.9% to 2R target", "Stop hit · …",
+  "Target reached", "No stop set". Only the Symbol cell triggers it, so moving across the table doesn't flash
+  cards; once one is showing, moving to another symbol switches at once. It hides on leaving the cell, clicking,
+  scrolling, typing, a refresh or the window losing focus, and replaces the symbol cell's tooltip (the name is in
+  its header). Bars come from local `price_history`; a symbol missing them gets one background fetch per session.
+  Closed positions show the chart up to the close date with the entry line only. The Stock Trading card points to
+  the detail pane ("double-click for the full chart"); Long-term still has no detail pane.
+  Same day (user request): the peek's candles run to the right edge, with the stop / target / entry prices as tags
+  on the price axis instead of labels on the lines; both candle charts draw a subtle magenta **18-day SMA**
+  (new `sma` chart token, Trailhead only, so not mirrored to the house style); the peek loads a month more history
+  so the average spans its whole width.
+  Entry line (same day, user question "why do only some charts show the entry?"): it used to be drawn but never
+  stretched the price range, so an entry outside the shown prices was silently off-chart. Now an entry within 25%
+  of the shown price span (candles plus stop and target) stretches the range and is drawn; one further away (an
+  old Long-term average cost, a swing trade that has run) is a tag pinned to the top or bottom-left edge,
+  "▼ Avg cost 60.00 · −20.2%" (distance from the last close), so the candles are not squashed. Both charts.
+  The candle item now reports `dataBounds`, so the y range fits only the bars in view (the peek's warm-up bars
+  had been stretching it; the full chart now refits when panned).

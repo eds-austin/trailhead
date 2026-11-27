@@ -46,6 +46,7 @@
 | `target` | `#22C3D6` | **Next target**: pill, chart line, ladder |
 | `warning` | `#E3B341` | Exceeds max or risk, stale prices, earnings soon |
 | `info` | `#9A8CFF` | Manual-price badge, informational alerts |
+| `sma` | `#D66BD9` | 18-day moving average on candle charts (Trailhead-only chart series) |
 
 ### Tints (backgrounds for badges, pills and row states)
 Each tint is the semantic color at reduced alpha over `surface`:
@@ -195,6 +196,8 @@ Global setup comes from tokens: `pg.setConfigOptions(antialias=True, background=
 | Entry line | `text` dashed 1px, label "Entry 43.18" |
 | **Current stop** | `stop` solid 2px, with the right-edge label pill "STOP 41.72" (pill style) |
 | **Next target** | `target` solid 2px, with the right-edge label pill "TGT 49.02" |
+| 18-day SMA | `sma` 1.25px at 70% alpha; its value is in the crosshair readout |
+| Hover peek | Compact chart: candles edge to edge, level prices as filled tags on the price axis (`stop` / `target` fill, entry on `surface3`), no volume, ladder or crosshair |
 | R ladder | `text_faint` dotted 1px at −1R, −0.5R, 0, 1R, 2R, 3R, 6R, 9R…, labels "1R" etc. on the right |
 | Buy / Sell markers | ▲ `positive` below the low / ▼ `negative` above the high, 9px |
 | Earnings | Vertical dashed `warning` line with an "E" tag at the top |

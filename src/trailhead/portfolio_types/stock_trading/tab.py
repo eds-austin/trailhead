@@ -40,6 +40,7 @@ from ...ui.theme import tokens
 from ...ui.widgets.common import button, frame, label
 from ...ui.widgets.empty_state import EmptyState
 from ...ui.widgets.kpi_card import KpiStrip
+from ...ui.widgets.price_peek import PeekController, PeekInfo
 from ...ui.widgets.search_field import SearchField
 from ...ui.widgets.segmented import Segmented
 from .kpis import KPI_CARDS, compute_kpis
@@ -49,6 +50,22 @@ from .service import accept_dividend, dividends_by_position, load_snapshot, pend
 from .table_model import COL_INDEX, COLUMNS, COLUMNS_REV, NODE_ROLE, RESIZED_IN_REV, PositionsTreeModel
 
 HIST_W = 340  # R distribution panel beside the KPI strip
+
+
+def peek_info(index: QModelIndex) -> PeekInfo | None:
+    """Hover peek for a position's Symbol cell: last price against the nearest stop and the next R target."""
+    if index.parent().isValid() or COLUMNS[index.column()].key != "symbol":
+        return None
+    node = index.data(NODE_ROLE)
+    if node is None:
+        return None
+    pv = node.pv
+    tv = pv.target_view
+    return PeekInfo(pv.symbol, pv.symbol, pv.market.name or "", pv.last, pv.day_pct,
+                    entry=pv.position.avg_entry, entry_label="Avg" if len(pv.open_views) > 1 else "Entry",
+                    stop=pv.stop, target=pv.next_target,
+                    target_label=f"{tv.state.next_r}R target" if tv is not None else "target",
+                    closed_on=pv.position.close_date if pv.is_closed else None)
 
 
 class PortfolioTab(QWidget):
@@ -162,6 +179,7 @@ class PortfolioTab(QWidget):
         self.view.customContextMenuRequested.connect(self._context_menu)
         self.view.action_clicked.connect(self._on_action_clicked)
         self.view.selectionModel().currentRowChanged.connect(lambda cur, _prev: self._on_current_changed(cur))
+        self.peek = PeekController(self.view, self.ctx, peek_info, hint="double-click for the full chart")
         h = self.view.header()
         h.sortIndicatorChanged.connect(lambda *_: self._save_columns_later())
         h.sectionMoved.connect(lambda *_: self._save_columns_later())
