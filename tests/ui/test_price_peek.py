@@ -123,3 +123,30 @@ def test_far_entry_gets_an_edge_tag_not_a_line(ctx, qtbot):
     assert lo > 30  # the candles were not squashed to reach the entry
     c.set_data("W", bars, ChartLevels(D(44), "Entry", D(42), D(48)), visible_from=bars[30].date)
     assert c._edge_tag is None and "44.00" in [t[1] for t in c.level_axis.tags]
+
+
+def test_fund_priced_once_a_day_draws_a_close_line(ctx, qtbot):
+    """Mutual funds (VWEAX): open = high = low = close every day. Zero-length wicks used to flood the plot green."""
+    import pyqtgraph as pg
+
+    from trailhead.ui.charts.candle_chart import CandleChart, CandlestickItem
+
+    nav = [D("5.30") - D("0.002") * i for i in range(60)]
+    bars = [Bar(date(2026, 8, 1) + timedelta(days=i), v, v, v, v, 0) for i, v in enumerate(nav)]
+    c = CandleChart(compact=True)
+    qtbot.addWidget(c)
+    c.set_data("VWEAX", bars)
+    assert c.candles.rows == [] and len(c.close_line.xData) == 60
+
+    w = pg.PlotWidget()  # the candle item itself, fed flat bars, must not paint a filled area
+    qtbot.addWidget(w)
+    w.resize(300, 150)
+    item = CandlestickItem()
+    item.set_rows([(float(i), float(v), float(v), float(v), float(v)) for i, v in enumerate(nav)])
+    w.addItem(item)
+    w.show()
+    qtbot.waitExposed(w)
+    img = w.grab().toImage()
+    green = sum(1 for x in range(0, 300, 6) for y in range(0, 150, 6)
+                if img.pixelColor(x, y).green() > 150 and img.pixelColor(x, y).red() < 100)
+    assert green < 60  # ticks only (the bug filled ~all of the ~1,250 samples)

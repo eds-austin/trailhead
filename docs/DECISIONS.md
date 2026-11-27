@@ -394,3 +394,8 @@ Choices made where PLAN.md / DESIGN_SYSTEM.md were silent or ambiguous.
   moves to **Price** with the fetched quote selected, since the actual fill price is typed after the order
   executes. Enter in Shares therefore no longer saves a buy. The link reserves room for its focus ring (it was
   clipped to "Jse suggested" when focused).
+- **Funds priced once a day on the candle charts (2026-11-27, user report: VWEAX's hover chart was solid
+  green).** Mutual funds have one NAV a day, so Yahoo's bars are open = high = low = close. Each wick was a
+  zero-length line, which Qt paints as garbage when recorded in a QPicture (it filled the whole plot). Wicks are
+  now skipped when high = low, and when every bar is flat the chart draws an `accent` closing-price line instead
+  of candles (they'd only be identical green ticks). The SMA, level lines and entry tag work as before.

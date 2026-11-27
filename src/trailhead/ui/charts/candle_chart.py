@@ -112,7 +112,8 @@ class CandlestickItem(pg.GraphicsObject):
             up = c >= o
             color = p.positive if up else p.negative
             qp.setPen(pen(color, 1))
-            qp.drawLine(QPointF(x, lo), QPointF(x, h))
+            if h > lo:  # a zero-length line in a QPicture paints garbage (it flooded a fund's chart green)
+                qp.drawLine(QPointF(x, lo), QPointF(x, h))
             qp.setBrush(brush(color, 0.85))
             top, bot = max(o, c), min(o, c)
             if top - bot <= 0:
@@ -195,6 +196,8 @@ class CandleChart(QWidget):
         self.price.enableAutoRange(axis="y")
         self.candles = CandlestickItem()
         self.price.addItem(self.candles)
+        self.close_line = pg.PlotDataItem(pen=pen(theme.palette().accent, 1.5))  # funds priced once a day
+        self.price.addItem(self.close_line)
         self.sma_line = pg.PlotDataItem(pen=pen(theme.palette().sma, 1.25, alpha=0.7))
         self.price.addItem(self.sma_line, ignoreBounds=True)
         self.sma: list[float | None] = []
@@ -242,6 +245,7 @@ class CandleChart(QWidget):
         self._extra = []
         self.candles.set_rows([])
         self.sma_line.setData([], [])
+        self.close_line.setData([], [])
         self.sma = []
         self._edge_tag = None
         if self.level_axis is not None:
@@ -293,7 +297,10 @@ class CandleChart(QWidget):
         idx = {b.date: i for i, b in enumerate(bars)}
         self.vol_axis.dates = [b.date for b in bars]
         rows = [(float(i), float(b.open), float(b.high), float(b.low), float(b.close)) for i, b in enumerate(bars)]
-        self.candles.set_rows(rows)
+        if all(b.high == b.low for b in bars):  # one price a day (a mutual fund's NAV): a line, not empty candles
+            self.close_line.setData([r[0] for r in rows], [r[4] for r in rows])
+        else:
+            self.candles.set_rows(rows)
         self.sma = sma([float(b.close) for b in bars])
         pts = [(i, v) for i, v in enumerate(self.sma) if v is not None]
         self.sma_line.setData([x for x, _ in pts], [v for _, v in pts])
